@@ -72,8 +72,37 @@ func inferForgeType(host string) account.ForgeType {
 	}
 }
 
+func ValidateBranchName(branch string) error {
+	if branch == "" {
+		return fmt.Errorf("branch or ref name cannot be empty")
+	}
+	if strings.HasPrefix(branch, "-") {
+		return fmt.Errorf("invalid branch name %q: cannot start with '-'", branch)
+	}
+
+	for _, r := range branch {
+		if r <= 0x20 || r == 0x7f {
+			return fmt.Errorf("invalid branch name %q: contains whitespace or control character", branch)
+		}
+	}
+
+	forbidden := []string{"..", "~", "^", ":", "?", "*", "[", "\\", "@{", "//"}
+	for _, f := range forbidden {
+		if strings.Contains(branch, f) {
+			return fmt.Errorf("invalid branch name %q: contains forbidden sequence %q", branch, f)
+		}
+	}
+	if strings.HasPrefix(branch, "/") || strings.HasSuffix(branch, "/") || strings.HasSuffix(branch, ".lock") || strings.HasSuffix(branch, ".") {
+		return fmt.Errorf("invalid branch name %q: invalid prefix or suffix", branch)
+	}
+	return nil
+}
+
 func (s *Service) CheckoutBranch(ctx context.Context, branch string) error {
-	cmd := exec.CommandContext(ctx, "git", "checkout", branch)
+	if err := ValidateBranchName(branch); err != nil {
+		return err
+	}
+	cmd := exec.CommandContext(ctx, "git", "checkout", "--", branch)
 	if s.workDir != "" {
 		cmd.Dir = s.workDir
 	}
@@ -85,6 +114,13 @@ func (s *Service) CheckoutBranch(ctx context.Context, branch string) error {
 }
 
 func (s *Service) FetchAndCheckoutPR(ctx context.Context, prNumber int, branchName string) error {
+	if prNumber <= 0 {
+		return fmt.Errorf("invalid PR number: %d", prNumber)
+	}
+	if err := ValidateBranchName(branchName); err != nil {
+		return err
+	}
+
 	fetchRef := fmt.Sprintf("pull/%d/head:%s", prNumber, branchName)
 	cmd := exec.CommandContext(ctx, "git", "fetch", "origin", fetchRef)
 	if s.workDir != "" {

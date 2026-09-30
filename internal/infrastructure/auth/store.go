@@ -16,6 +16,10 @@ type Store struct {
 
 func NewStore(customPath string) (*Store, error) {
 	if customPath != "" {
+		dir := filepath.Dir(customPath)
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			return nil, err
+		}
 		return &Store{filePath: customPath}, nil
 	}
 
@@ -95,6 +99,11 @@ func (s *Store) Set(authRef, secret string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	dir := filepath.Dir(s.filePath)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+
 	creds := make(map[string]string)
 	data, err := os.ReadFile(s.filePath)
 	if err == nil {
@@ -107,7 +116,10 @@ func (s *Store) Set(authRef, secret string) error {
 		return err
 	}
 
-	return os.WriteFile(s.filePath, updated, 0600)
+	if err := os.WriteFile(s.filePath, updated, 0600); err != nil {
+		return err
+	}
+	return os.Chmod(s.filePath, 0600)
 }
 
 func (s *Store) Delete(authRef string) error {
@@ -133,7 +145,10 @@ func (s *Store) Delete(authRef string) error {
 		return err
 	}
 
-	return os.WriteFile(s.filePath, updated, 0600)
+	if err := os.WriteFile(s.filePath, updated, 0600); err != nil {
+		return err
+	}
+	return os.Chmod(s.filePath, 0600)
 }
 
 func (s *Store) List() ([]string, error) {

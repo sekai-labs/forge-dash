@@ -24,39 +24,77 @@ func (s *StatusBar) SetWidth(w int) {
 }
 
 func (s *StatusBar) Render(cursor, total int, errs map[account.AccountID]error, loading bool) string {
-	var leftParts []string
+	var leftB strings.Builder
+	leftB.Grow(128)
 
 	if total > 0 {
 		posText := fmt.Sprintf("%d/%d", cursor+1, total)
-		leftParts = append(leftParts, s.theme.BadgeOpen.Render(posText))
+		leftB.WriteString(s.theme.BadgeOpen.Render(posText))
 	} else {
-		leftParts = append(leftParts, s.theme.Subtitle.Render("0 items"))
+		leftB.WriteString(s.theme.Subtitle.Render("0/0"))
 	}
 
 	if loading {
-		leftParts = append(leftParts, s.theme.CIPending.Render("⟳ Loading..."))
+		leftB.WriteString("  ")
+		leftB.WriteString(s.theme.CIPending.Render("⟳ Loading..."))
 	}
 
 	if len(errs) > 0 {
+		leftB.WriteString("  ")
 		var errAccounts []string
 		for accID := range errs {
 			errAccounts = append(errAccounts, string(accID))
 		}
-		alert := s.theme.BadgeClosed.Render(fmt.Sprintf("⚠ %d errors (%s)", len(errs), strings.Join(errAccounts, ", ")))
-		leftParts = append(leftParts, alert)
+		alert := s.theme.BadgeClosed.Render(fmt.Sprintf("⚠ %d err (%s)", len(errs), strings.Join(errAccounts, ", ")))
+		leftB.WriteString(alert)
 	}
 
-	left := strings.Join(leftParts, "  •  ")
-	hints := "? Help  •  / Filter  •  r Refresh  •  p Preview  •  s View  •  q Quit"
+	left := leftB.String()
+
+	type shortcut struct {
+		key  string
+		desc string
+	}
+	shortcuts := []shortcut{
+		{"?", "help"},
+		{"/", "filter"},
+		{"r", "refresh"},
+		{"p", "preview"},
+		{"o", "open"},
+		{"c", "comment"},
+		{"q", "quit"},
+	}
+
+	var rightB strings.Builder
+	rightB.Grow(128)
+	keyStyle := lipgloss.NewStyle().Bold(true).Foreground(s.theme.P.HighlightText)
+	descStyle := lipgloss.NewStyle().Foreground(s.theme.P.Muted)
+
+	for i, sc := range shortcuts {
+		if i > 0 {
+			rightB.WriteString("  ")
+		}
+		rightB.WriteString(keyStyle.Render(sc.key))
+		rightB.WriteByte(' ')
+		rightB.WriteString(descStyle.Render(sc.desc))
+	}
+	right := rightB.String()
 
 	leftW := ansi.StringWidth(left)
-	hintsW := ansi.StringWidth(hints)
+	rightW := ansi.StringWidth(right)
 
-	gap := s.width - leftW - hintsW - 2
+	gap := s.width - leftW - rightW - 2
 	if gap < 1 {
 		gap = 1
 	}
 
-	barContent := lipgloss.JoinHorizontal(lipgloss.Center, left, strings.Repeat(" ", gap), hints)
-	return s.theme.StatusBar.Width(s.width).Render(barContent)
+	var barB strings.Builder
+	barB.Grow(s.width + 16)
+	barB.WriteString(left)
+	for range gap {
+		barB.WriteByte(' ')
+	}
+	barB.WriteString(right)
+
+	return s.theme.StatusBar.Width(s.width).Render(barB.String())
 }

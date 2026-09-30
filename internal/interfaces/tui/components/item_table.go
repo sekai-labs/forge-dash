@@ -6,23 +6,21 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/forgedash/forgedash/internal/domain/change"
 	"github.com/forgedash/forgedash/internal/domain/issue"
 	"github.com/forgedash/forgedash/internal/domain/notification"
 	"github.com/forgedash/forgedash/internal/interfaces/tui/styles"
 )
 
-type TableItem struct {
-	ID        string
-	Provider  string
-	StateIcon string
-	Number    string
-	Title     string
-	Author    string
-	Repo      string
-	CI        string
-	Review    string
-	Updated   string
+type Column struct {
+	Title string
+	Width int
+	Align lipgloss.Position
+}
+
+type TableRowData struct {
+	Cells []string
 }
 
 type ItemTable struct {
@@ -31,15 +29,35 @@ type ItemTable struct {
 	height       int
 	cursor       int
 	scrollOffset int
+	focused      bool
 }
 
 func NewItemTable(theme *styles.Theme) *ItemTable {
-	return &ItemTable{theme: theme}
+	return &ItemTable{
+		theme:   theme,
+		focused: true,
+	}
+}
+
+func (t *ItemTable) SetFocused(f bool) {
+	t.focused = f
+}
+
+func (t *ItemTable) Focused() bool {
+	return t.focused
 }
 
 func (t *ItemTable) SetSize(w, h int) {
 	t.width = w
 	t.height = h
+}
+
+func (t *ItemTable) Width() int {
+	return t.width
+}
+
+func (t *ItemTable) Height() int {
+	return t.height
 }
 
 func (t *ItemTable) Cursor() int {
@@ -51,6 +69,7 @@ func (t *ItemTable) MoveDown(total int) {
 		t.cursor = 0
 		return
 	}
+
 	if t.cursor < total-1 {
 		t.cursor++
 		visibleRows := t.height - 2
@@ -87,7 +106,46 @@ func (t *ItemTable) MoveBottom(total int) {
 }
 
 func (t *ItemTable) RenderChanges(changes []change.ChangeRequest) string {
-	var items []TableItem
+	w := t.width
+	if w <= 0 {
+		w = 80
+	}
+
+	var cols []Column
+	if w < 55 {
+		cols = []Column{
+			{Title: "PROV", Width: 4},
+			{Title: "REPO", Width: 12},
+			{Title: "ID", Width: 6},
+			{Title: "TITLE", Width: 0},
+			{Title: "STATE", Width: 5},
+			{Title: "TIME", Width: 5},
+		}
+	} else if w < 75 {
+		cols = []Column{
+			{Title: "PROV", Width: 4},
+			{Title: "REPO", Width: 14},
+			{Title: "ID", Width: 7},
+			{Title: "TITLE", Width: 0},
+			{Title: "AUTHOR", Width: 10},
+			{Title: "STATE", Width: 5},
+			{Title: "TIME", Width: 6},
+		}
+	} else {
+		cols = []Column{
+			{Title: "PROV", Width: 4},
+			{Title: "REPO", Width: 18},
+			{Title: "ID", Width: 7},
+			{Title: "TITLE", Width: 0},
+			{Title: "AUTHOR", Width: 13},
+			{Title: "STATE", Width: 7},
+			{Title: "CI", Width: 3},
+			{Title: "REV", Width: 3},
+			{Title: "TIME", Width: 6},
+		}
+	}
+
+	rows := make([]TableRowData, 0, len(changes))
 	for _, c := range changes {
 		ci := t.theme.CIPassing.Render("✓")
 		if c.CIStatus == change.CIStatusFailing {
@@ -100,66 +158,214 @@ func (t *ItemTable) RenderChanges(changes []change.ChangeRequest) string {
 
 		rev := t.theme.CINone.Render("·")
 		if c.ReviewStatus == change.ReviewStatusApproved {
-			rev = t.theme.BadgeOpen.Render("✓")
+			rev = t.theme.ReviewApproved.Render("✓")
 		} else if c.ReviewStatus == change.ReviewStatusChangesRequested {
-			rev = t.theme.BadgeClosed.Render("✕")
+			rev = t.theme.ReviewChanges.Render("✗")
+		} else if c.ReviewStatus == change.ReviewStatusReviewRequired {
+			rev = t.theme.ReviewCommented.Render("●")
 		}
 
-		items = append(items, TableItem{
-			ID:        c.ResourceID.URI(),
-			Provider:  t.theme.ProviderBadge(c.ResourceID.Provider),
-			StateIcon: t.theme.ChangeStateIcon(c.State),
-			Number:    c.DisplayID(),
-			Title:     c.Title,
-			Author:    c.Author.Username,
-			Repo:      c.FullRepoName(),
-			CI:        ci,
-			Review:    rev,
-			Updated:   formatRelativeTime(c.UpdatedAt),
-		})
+		var stateBadge string
+		switch c.State {
+		case change.ChangeStateOpen:
+			stateBadge = t.theme.BadgeOpen.Render("Open")
+		case change.ChangeStateMerged:
+			stateBadge = t.theme.BadgeMerged.Render("Merged")
+		case change.ChangeStateClosed:
+			stateBadge = t.theme.BadgeClosed.Render("Closed")
+		case change.ChangeStateDraft:
+			stateBadge = t.theme.BadgeDraft.Render("Draft")
+		default:
+			stateBadge = string(c.State)
+		}
+
+		var cells []string
+		if w < 55 {
+			cells = []string{
+				t.theme.ProviderBadge(c.ResourceID.Provider),
+				c.FullRepoName(),
+				c.DisplayID(),
+				c.Title,
+				stateBadge,
+				formatRelativeTime(c.UpdatedAt),
+			}
+		} else if w < 75 {
+			cells = []string{
+				t.theme.ProviderBadge(c.ResourceID.Provider),
+				c.FullRepoName(),
+				c.DisplayID(),
+				c.Title,
+				"@" + c.Author.Username,
+				stateBadge,
+				formatRelativeTime(c.UpdatedAt),
+			}
+		} else {
+			cells = []string{
+				t.theme.ProviderBadge(c.ResourceID.Provider),
+				c.FullRepoName(),
+				c.DisplayID(),
+				c.Title,
+				"@" + c.Author.Username,
+				stateBadge,
+				ci,
+				rev,
+				formatRelativeTime(c.UpdatedAt),
+			}
+		}
+
+		rows = append(rows, TableRowData{Cells: cells})
 	}
-	return t.renderItems(items)
+
+	return t.renderTable(cols, rows, 3)
 }
 
 func (t *ItemTable) RenderIssues(issues []issue.Issue) string {
-	var items []TableItem
-	for _, i := range issues {
-		items = append(items, TableItem{
-			ID:        i.ResourceID.URI(),
-			Provider:  t.theme.ProviderBadge(i.ResourceID.Provider),
-			StateIcon: t.theme.IssueStateIcon(i.State),
-			Number:    i.DisplayID(),
-			Title:     i.Title,
-			Author:    i.Author.Username,
-			Repo:      i.FullRepoName(),
-			CI:        t.theme.CINone.Render("·"),
-			Review:    t.theme.CINone.Render("·"),
-			Updated:   formatRelativeTime(i.UpdatedAt),
-		})
+	w := t.width
+	if w <= 0 {
+		w = 80
 	}
-	return t.renderItems(items)
+
+	var cols []Column
+	if w < 55 {
+		cols = []Column{
+			{Title: "PROV", Width: 4},
+			{Title: "REPO", Width: 12},
+			{Title: "ID", Width: 6},
+			{Title: "TITLE", Width: 0},
+			{Title: "STATE", Width: 5},
+			{Title: "TIME", Width: 5},
+		}
+	} else if w < 75 {
+		cols = []Column{
+			{Title: "PROV", Width: 4},
+			{Title: "REPO", Width: 14},
+			{Title: "ID", Width: 7},
+			{Title: "TITLE", Width: 0},
+			{Title: "AUTHOR", Width: 10},
+			{Title: "STATE", Width: 5},
+			{Title: "TIME", Width: 6},
+		}
+	} else {
+		cols = []Column{
+			{Title: "PROV", Width: 4},
+			{Title: "REPO", Width: 18},
+			{Title: "ID", Width: 7},
+			{Title: "TITLE", Width: 0},
+			{Title: "AUTHOR", Width: 13},
+			{Title: "STATE", Width: 7},
+			{Title: "COMMENTS", Width: 8},
+			{Title: "TIME", Width: 6},
+		}
+	}
+
+	rows := make([]TableRowData, 0, len(issues))
+	for _, i := range issues {
+		var stateBadge string
+		switch i.State {
+		case issue.IssueStateOpen:
+			stateBadge = t.theme.BadgeOpen.Render("Open")
+		case issue.IssueStateClosed:
+			stateBadge = t.theme.BadgeClosed.Render("Closed")
+		default:
+			stateBadge = string(i.State)
+		}
+
+		commCount := ""
+		if i.Comments > 0 {
+			commCount = fmt.Sprintf("💬 %d", i.Comments)
+		} else {
+			commCount = "·"
+		}
+
+		var cells []string
+		if w < 55 {
+			cells = []string{
+				t.theme.ProviderBadge(i.ResourceID.Provider),
+				i.FullRepoName(),
+				i.DisplayID(),
+				i.Title,
+				stateBadge,
+				formatRelativeTime(i.UpdatedAt),
+			}
+		} else if w < 75 {
+			cells = []string{
+				t.theme.ProviderBadge(i.ResourceID.Provider),
+				i.FullRepoName(),
+				i.DisplayID(),
+				i.Title,
+				"@" + i.Author.Username,
+				stateBadge,
+				formatRelativeTime(i.UpdatedAt),
+			}
+		} else {
+			cells = []string{
+				t.theme.ProviderBadge(i.ResourceID.Provider),
+				i.FullRepoName(),
+				i.DisplayID(),
+				i.Title,
+				"@" + i.Author.Username,
+				stateBadge,
+				commCount,
+				formatRelativeTime(i.UpdatedAt),
+			}
+		}
+
+		rows = append(rows, TableRowData{Cells: cells})
+	}
+
+	return t.renderTable(cols, rows, 3)
 }
 
 func (t *ItemTable) RenderNotifications(notifs []notification.Notification) string {
-	var items []TableItem
+	w := t.width
+	if w <= 0 {
+		w = 80
+	}
+
+	var cols []Column
+	if w < 75 {
+		cols = []Column{
+			{Title: "PROV", Width: 4},
+			{Title: "REASON", Width: 10},
+			{Title: "REPO", Width: 14},
+			{Title: "TITLE", Width: 0},
+			{Title: "STATE", Width: 5},
+			{Title: "TIME", Width: 5},
+		}
+	} else {
+		cols = []Column{
+			{Title: "PROV", Width: 4},
+			{Title: "REASON", Width: 12},
+			{Title: "REPO", Width: 20},
+			{Title: "TITLE", Width: 0},
+			{Title: "STATE", Width: 6},
+			{Title: "TIME", Width: 6},
+		}
+	}
+
+	rows := make([]TableRowData, 0, len(notifs))
 	for _, n := range notifs {
-		items = append(items, TableItem{
-			ID:        n.ResourceID.URI(),
-			Provider:  t.theme.ProviderBadge(n.ResourceID.Provider),
-			StateIcon: t.theme.BadgeDraft.Render("●"),
-			Number:    n.ID,
-			Title:     n.SubjectTitle,
-			Author:    n.Reason,
-			Repo:      n.FullRepoName(),
-			CI:        t.theme.CINone.Render("·"),
-			Review:    t.theme.CINone.Render("·"),
-			Updated:   formatRelativeTime(n.UpdatedAt),
+		unreadState := t.theme.Subtitle.Render("read")
+		if n.Unread {
+			unreadState = t.theme.BadgeOpen.Render("unread")
+		}
+
+		rows = append(rows, TableRowData{
+			Cells: []string{
+				t.theme.ProviderBadge(n.ResourceID.Provider),
+				n.Reason,
+				n.FullRepoName(),
+				n.SubjectTitle,
+				unreadState,
+				formatRelativeTime(n.UpdatedAt),
+			},
 		})
 	}
-	return t.renderItems(items)
+
+	return t.renderTable(cols, rows, 3)
 }
 
-func (t *ItemTable) renderItems(items []TableItem) string {
+func (t *ItemTable) renderTable(cols []Column, rows []TableRowData, flexColIdx int) string {
 	w := t.width
 	if w <= 0 {
 		w = 80
@@ -169,96 +375,128 @@ func (t *ItemTable) renderItems(items []TableItem) string {
 		h = 10
 	}
 
-	if len(items) == 0 {
+	if len(rows) == 0 {
 		msg := "No items in this section."
 		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, t.theme.Subtitle.Render(msg))
 	}
 
-	if t.cursor >= len(items) {
-		t.cursor = len(items) - 1
+	if t.cursor >= len(rows) {
+		t.cursor = len(rows) - 1
 	}
 
-	const (
-		provW   = 4
-		stW     = 2
-		numW    = 7
-		authW   = 14
-		repoW   = 18
-		ciW     = 2
-		revW    = 3
-		timeW   = 6
-		spacing = 8
-	)
-
-	fixedTotal := provW + stW + numW + authW + repoW + ciW + revW + timeW + spacing + 2
-	titleW := w - fixedTotal
-	if titleW < 12 {
-		titleW = 12
+	usableW := w - 2
+	if usableW < 10 {
+		usableW = w
 	}
 
-	header := fmt.Sprintf(" %s %s %s %s %s %s %s %s %s",
-		styles.PadRight("Prov", provW),
-		styles.PadRight("St", stW),
-		styles.PadRight("#", numW),
-		styles.PadRight("Title", titleW),
-		styles.PadRight("Author", authW),
-		styles.PadRight("Repo", repoW),
-		styles.PadRight("CI", ciW),
-		styles.PadRight("Rev", revW),
-		styles.PadRight("Time", timeW),
-	)
-	headerLine := t.theme.TableHeader.Width(w).Render(header)
+	calcFixed := func(c []Column, flexIdx int) int {
+		fw := 2
+		for i, col := range c {
+			if i != flexIdx {
+				fw += col.Width + 1
+			}
+		}
+		fw += 1
+		return fw
+	}
 
-	var rows []string
-	rows = append(rows, headerLine)
+	activeCols := make([]Column, len(cols))
+	copy(activeCols, cols)
+	activeFlex := flexColIdx
 
-	visibleRows := h - 2
+	for calcFixed(activeCols, activeFlex)+8 > usableW && len(activeCols) > 2 {
+		lastIdx := len(activeCols) - 1
+		if lastIdx == activeFlex {
+			lastIdx--
+		}
+		activeCols = append(activeCols[:lastIdx], activeCols[lastIdx+1:]...)
+		if lastIdx < activeFlex {
+			activeFlex--
+		}
+	}
+
+	fixedWidth := calcFixed(activeCols, activeFlex)
+	flexW := usableW - fixedWidth
+	if flexW < 8 {
+		flexW = 8
+	}
+	activeCols[activeFlex].Width = flexW
+
+	var headerB strings.Builder
+	headerB.Grow(usableW + 32)
+	headerB.WriteString("  ")
+
+	for i, c := range activeCols {
+		if i > 0 {
+			headerB.WriteByte(' ')
+		}
+		headerB.WriteString(styles.PadRight(c.Title, c.Width))
+	}
+
+	headerText := ansi.Truncate(headerB.String(), usableW, "")
+	headerLine := t.theme.TableHeader.UnsetBorderBottom().Width(usableW).Render(headerText)
+	sepLine := lipgloss.NewStyle().Foreground(t.theme.P.BorderInactive).Render(strings.Repeat("─", usableW))
+
+	var result strings.Builder
+	result.Grow((h + 1) * (usableW + 16))
+	result.WriteString(headerLine)
+	result.WriteByte('\n')
+	result.WriteString(sepLine)
+
+	visibleRows := h - 3
 	if visibleRows <= 0 {
 		visibleRows = 10
 	}
 
 	endIdx := t.scrollOffset + visibleRows
-	if endIdx > len(items) {
-		endIdx = len(items)
+	if endIdx > len(rows) {
+		endIdx = len(rows)
 	}
 
 	for i := t.scrollOffset; i < endIdx; i++ {
-		item := items[i]
-		truncTitle := styles.Truncate(item.Title, titleW)
-		truncRepo := styles.Truncate(item.Repo, repoW)
-		truncAuthor := styles.Truncate(item.Author, authW)
-		truncNum := styles.Truncate(item.Number, numW)
+		result.WriteByte('\n')
+		row := rows[i]
 
-		provPadded := styles.PadRight(item.Provider, provW)
-		stPadded := styles.PadRight(item.StateIcon, stW)
-		numPadded := styles.PadRight(truncNum, numW)
-		titlePadded := styles.PadRight(truncTitle, titleW)
-		authPadded := styles.PadRight(truncAuthor, authW)
-		repoPadded := styles.PadRight(truncRepo, repoW)
-		ciPadded := styles.PadRight(item.CI, ciW)
-		revPadded := styles.PadRight(item.Review, revW)
-		timePadded := styles.PadRight(item.Updated, timeW)
+		var rowB strings.Builder
+		rowB.Grow(usableW + 32)
 
-		rowText := fmt.Sprintf(" %s %s %s %s %s %s %s %s %s",
-			provPadded,
-			stPadded,
-			numPadded,
-			titlePadded,
-			authPadded,
-			repoPadded,
-			ciPadded,
-			revPadded,
-			timePadded,
-		)
-
-		if i == t.cursor {
-			rows = append(rows, t.theme.TableSelected.Width(w).Render(rowText))
+		isCursor := (i == t.cursor)
+		if isCursor {
+			if t.focused {
+				rowB.WriteString(lipgloss.NewStyle().Foreground(t.theme.P.BorderActive).Render("▎ "))
+			} else {
+				rowB.WriteString(lipgloss.NewStyle().Foreground(t.theme.P.Muted).Render("▎ "))
+			}
 		} else {
-			rows = append(rows, t.theme.TableRow.Width(w).Render(rowText))
+			rowB.WriteString("  ")
+		}
+
+		for cIdx, col := range activeCols {
+			if cIdx > 0 {
+				rowB.WriteByte(' ')
+			}
+			cellVal := ""
+			if cIdx < len(row.Cells) {
+				cellVal = row.Cells[cIdx]
+			}
+			truncVal := styles.Truncate(cellVal, col.Width)
+			rowB.WriteString(styles.PadRight(truncVal, col.Width))
+		}
+
+		rowContent := ansi.Truncate(rowB.String(), usableW, "")
+		if isCursor {
+			if t.focused {
+				result.WriteString(t.theme.TableSelected.Width(usableW).Render(rowContent))
+			} else {
+
+				result.WriteString(lipgloss.NewStyle().Background(t.theme.P.BgCard).Width(usableW).Render(rowContent))
+			}
+		} else {
+			result.WriteString(t.theme.TableRow.Width(usableW).Render(rowContent))
 		}
 	}
 
-	return strings.Join(rows, "\n")
+	return result.String()
 }
 
 func formatRelativeTime(tm time.Time) string {

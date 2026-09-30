@@ -1,115 +1,160 @@
 package modals
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/forgedash/forgedash/internal/domain/account"
+	"github.com/forgedash/forgedash/internal/interfaces/tui/keymap"
 	"github.com/forgedash/forgedash/internal/interfaces/tui/styles"
 )
 
 func RenderHelpModal(theme *styles.Theme, width, height int) string {
-	title := theme.Title.Render("ForgeDash Keyboard Navigation Cheat Sheet")
+	km := keymap.DefaultKeyMap()
+	groups := km.HelpGroups()
 
-	leftCol := `NAVIGATION:
-  j, down      Move selection down
-  k, up        Move selection up
-  g, home      Jump to top
-  G, end       Jump to bottom
-  h, left      Previous section tab
-  l, right     Next section tab
-  1 - 5        Select section tab directly
-  ctrl+d       Scroll preview pane down
-  ctrl+u       Scroll preview pane up
-  [, ]         Previous / next preview tab
+	title := theme.Title.Render("⚡ FORGEDASH SHORTCUTS")
 
-VIEWS & LAYOUT:
-  s, tab       Cycle views (PRs -> Issues -> Notifications)
-  shift+tab    Cycle views backwards
-  p            Toggle preview pane open / close
-  P            Toggle preview position (right / bottom)`
+	col1Groups := groups[0:2]
+	col2Groups := groups[2:4]
+	col3Groups := groups[4:6]
 
-	rightCol := `ACTIONS:
-  enter, o     Open selected item in browser
-  y            Copy item number to clipboard
-  Y            Copy item URL to clipboard
-  d            Jump to diff preview tab
-  c            Add comment
-  v            Approve PR / MR
-  m            Merge PR / MR
-  x            Close PR / MR or Issue
-  X            Reopen PR / MR or Issue
-  C, space     Checkout branch locally via git
+	renderGroupCol := func(subgroups []keymap.HelpGroup) string {
+		var b strings.Builder
+		for gIdx, grp := range subgroups {
+			if gIdx > 0 {
+				b.WriteString("\n\n")
+			}
+			header := lipgloss.NewStyle().Bold(true).Foreground(theme.P.Secondary).Render(strings.ToUpper(grp.Title))
+			b.WriteString(header)
+			b.WriteByte('\n')
 
-GLOBAL:
-  /            Filter items in current section
-  r            Refresh active section
-  R            Refresh all sections across accounts
-  ctrl+a       Open account switcher modal
-  ?, esc       Close help / modal
-  q, ctrl+c    Exit application`
+			for _, bnd := range grp.Bindings {
+				helpKey := bnd.Help().Key
+				helpDesc := bnd.Help().Desc
+				if helpKey == "" {
+					continue
+				}
 
-	body := lipgloss.JoinHorizontal(lipgloss.Top,
-		lipgloss.NewStyle().Width(44).Render(leftCol),
-		"    ",
-		lipgloss.NewStyle().Width(44).Render(rightCol),
-	)
+				keyPart := lipgloss.NewStyle().Bold(true).Foreground(theme.P.HighlightText).Render(styles.PadRight(helpKey, 12))
+				descPart := lipgloss.NewStyle().Foreground(theme.P.Muted).Render(helpDesc)
 
-	content := fmt.Sprintf("%s\n\n%s\n\n%s", title, body, theme.Subtitle.Render("Press '?' or 'esc' to close this modal."))
-	return theme.ModalBox.Width(96).Render(content)
+				b.WriteString("  ")
+				b.WriteString(keyPart)
+				b.WriteByte(' ')
+				b.WriteString(descPart)
+				b.WriteByte('\n')
+			}
+		}
+		return b.String()
+	}
+
+	colW := 30
+	if width > 110 {
+		colW = 34
+	}
+
+	col1 := lipgloss.NewStyle().Width(colW).Render(renderGroupCol(col1Groups))
+	col2 := lipgloss.NewStyle().Width(colW).Render(renderGroupCol(col2Groups))
+	col3 := lipgloss.NewStyle().Width(colW).Render(renderGroupCol(col3Groups))
+
+	colsRow := lipgloss.JoinHorizontal(lipgloss.Top, col1, "  ", col2, "  ", col3)
+
+	var b strings.Builder
+	b.Grow(len(colsRow) + 256)
+	b.WriteString(title)
+	b.WriteString("\n\n")
+	b.WriteString(colsRow)
+	b.WriteString("\n\n")
+	b.WriteString(theme.Subtitle.Render("Press '?' or 'esc' to close this cheat sheet."))
+
+	modalW := (colW * 3) + 8
+	return theme.ModalBox.Width(modalW).Render(b.String())
 }
 
 func RenderAccountModal(theme *styles.Theme, accounts []account.Account, activeID account.AccountID, isUnified bool, selectedIdx int) string {
-	title := theme.Title.Render("Switch Dashboard Account Scope")
+	title := theme.Title.Render("Select Account Scope")
 
-	var rows []string
+	var rowsB strings.Builder
+	rowsB.Grow((len(accounts) + 1) * 64)
 
-	unifiedPrefix := "  "
-	if selectedIdx == 0 {
-		unifiedPrefix = "> "
-	}
-	unifiedTag := ""
+	unifiedRadio := "○"
 	if isUnified {
-		unifiedTag = " [ACTIVE]"
+		unifiedRadio = "●"
 	}
-	unifiedRow := fmt.Sprintf("%sUnified View (Aggregate all accounts)%s", unifiedPrefix, unifiedTag)
+	unifiedCursor := "  "
 	if selectedIdx == 0 {
-		rows = append(rows, theme.TableSelected.Render(unifiedRow))
+		unifiedCursor = "> "
+	}
+
+	var unifiedLineB strings.Builder
+	unifiedLineB.WriteString(unifiedCursor)
+	unifiedLineB.WriteString(unifiedRadio)
+	unifiedLineB.WriteString("  Unified View (All Accounts)")
+	unifiedLine := unifiedLineB.String()
+
+	if selectedIdx == 0 {
+		rowsB.WriteString(theme.TableSelected.Width(58).Render(unifiedLine))
 	} else {
-		rows = append(rows, theme.TableRow.Render(unifiedRow))
+		rowsB.WriteString(theme.TableRow.Width(58).Render(unifiedLine))
 	}
 
 	for i, acc := range accounts {
+		rowsB.WriteByte('\n')
 		idx := i + 1
-		prefix := "  "
+		cursor := "  "
 		if selectedIdx == idx {
-			prefix = "> "
+			cursor = "> "
 		}
-		activeTag := ""
+
+		radio := "○"
 		if !isUnified && acc.ID == activeID {
-			activeTag = " [ACTIVE]"
+			radio = "●"
 		}
+
 		badge := theme.ProviderBadge(acc.Provider)
-		row := fmt.Sprintf("%s%s %s (%s)%s", prefix, badge, acc.Name, acc.Host, activeTag)
+		var rowB strings.Builder
+		rowB.WriteString(cursor)
+		rowB.WriteString(radio)
+		rowB.WriteString("  ")
+		rowB.WriteString(badge)
+		rowB.WriteString("  ")
+		rowB.WriteString(acc.Name)
+		rowB.WriteString(" (")
+		rowB.WriteString(acc.Host)
+		rowB.WriteByte(')')
+		row := rowB.String()
+
 		if selectedIdx == idx {
-			rows = append(rows, theme.TableSelected.Render(row))
+			rowsB.WriteString(theme.TableSelected.Width(58).Render(row))
 		} else {
-			rows = append(rows, theme.TableRow.Render(row))
+			rowsB.WriteString(theme.TableRow.Width(58).Render(row))
 		}
 	}
 
-	content := fmt.Sprintf("%s\n\n%s\n\n%s",
-		title,
-		strings.Join(rows, "\n"),
-		theme.Subtitle.Render("Use j/k to navigate • Enter to select • Esc to cancel"),
-	)
+	var b strings.Builder
+	b.Grow(rowsB.Len() + 128)
+	b.WriteString(title)
+	b.WriteString("\n\n")
+	b.WriteString(rowsB.String())
+	b.WriteString("\n\n")
+	b.WriteString(theme.Subtitle.Render("j/k to navigate • Enter to select • Esc to cancel"))
 
-	return theme.ModalBox.Width(64).Render(content)
+	return theme.ModalBox.Width(64).Render(b.String())
 }
 
 func RenderConfirmModal(theme *styles.Theme, title, prompt string) string {
-	header := theme.Title.Render(title)
-	body := prompt + "\n\n" + theme.Subtitle.Render("Press 'y' to confirm, or 'n' / 'esc' to cancel.")
-	return theme.ModalBox.Width(54).Render(header + "\n\n" + body)
+	header := theme.Title.Render("⚡ " + title)
+
+	var b strings.Builder
+	b.Grow(len(prompt) + 128)
+	b.WriteString(header)
+	b.WriteString("\n\n")
+	b.WriteString(prompt)
+	b.WriteString("\n\n")
+	b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(theme.P.Secondary).Render("[y]es / [n]o"))
+	b.WriteString("  ")
+	b.WriteString(theme.Subtitle.Render("(Press 'y' to confirm, 'n' or 'esc' to cancel)"))
+
+	return theme.ModalBox.Width(56).Render(b.String())
 }

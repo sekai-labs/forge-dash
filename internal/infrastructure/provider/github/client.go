@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -172,19 +173,31 @@ func (c *Client) ListChanges(ctx context.Context, filter shared.QueryFilter) ([]
 	if perPage <= 0 {
 		perPage = 30
 	}
-
-	searchQuery := "is:pr is:open"
-	if filter.Query != "" {
-		searchQuery = filter.Query
-		if !strings.Contains(searchQuery, "is:pr") {
-			searchQuery = "is:pr " + searchQuery
-		}
-	}
+	var queryBuilder strings.Builder
 	if filter.Repo != "" {
-		searchQuery = fmt.Sprintf("repo:%s %s", filter.Repo, searchQuery)
+		queryBuilder.WriteString("repo:")
+		queryBuilder.WriteString(filter.Repo)
+		queryBuilder.WriteByte(' ')
 	}
 
-	path := fmt.Sprintf("/search/issues?q=%s&per_page=%d&sort=updated", url.QueryEscape(searchQuery), perPage)
+	if filter.Query != "" {
+		if !strings.Contains(filter.Query, "is:pr") {
+			queryBuilder.WriteString("is:pr ")
+		}
+		queryBuilder.WriteString(filter.Query)
+	} else {
+		queryBuilder.WriteString("is:pr is:open")
+	}
+
+	v := url.Values{}
+	v.Set("q", queryBuilder.String())
+	v.Set("per_page", strconv.Itoa(perPage))
+	v.Set("sort", "updated")
+
+	var pathBuilder strings.Builder
+	pathBuilder.WriteString("/search/issues?")
+	pathBuilder.WriteString(v.Encode())
+	path := pathBuilder.String()
 	req, err := c.newRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return nil, shared.Pagination{}, err
@@ -777,19 +790,31 @@ func (c *Client) ListIssues(ctx context.Context, filter shared.QueryFilter) ([]i
 	if perPage <= 0 {
 		perPage = 30
 	}
-
-	searchQuery := "is:issue is:open"
-	if filter.Query != "" {
-		searchQuery = filter.Query
-		if !strings.Contains(searchQuery, "is:issue") {
-			searchQuery = "is:issue " + searchQuery
-		}
-	}
+	var queryBuilder strings.Builder
 	if filter.Repo != "" {
-		searchQuery = fmt.Sprintf("repo:%s %s", filter.Repo, searchQuery)
+		queryBuilder.WriteString("repo:")
+		queryBuilder.WriteString(filter.Repo)
+		queryBuilder.WriteByte(' ')
 	}
 
-	path := fmt.Sprintf("/search/issues?q=%s&per_page=%d&sort=updated", url.QueryEscape(searchQuery), perPage)
+	if filter.Query != "" {
+		if !strings.Contains(filter.Query, "is:issue") {
+			queryBuilder.WriteString("is:issue ")
+		}
+		queryBuilder.WriteString(filter.Query)
+	} else {
+		queryBuilder.WriteString("is:issue is:open")
+	}
+
+	v := url.Values{}
+	v.Set("q", queryBuilder.String())
+	v.Set("per_page", strconv.Itoa(perPage))
+	v.Set("sort", "updated")
+
+	var pathBuilder strings.Builder
+	pathBuilder.WriteString("/search/issues?")
+	pathBuilder.WriteString(v.Encode())
+	path := pathBuilder.String()
 	req, err := c.newRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return nil, shared.Pagination{}, err

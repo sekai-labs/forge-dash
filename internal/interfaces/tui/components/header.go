@@ -24,6 +24,9 @@ func (h *Header) SetWidth(w int) {
 }
 
 func (h *Header) Render(activeView usecase.ViewMode, scope usecase.AccountScope, accountName string) string {
+	var b strings.Builder
+	b.Grow(h.width + 64)
+
 	logo := h.theme.Title.Render("⚡ FORGEDASH")
 
 	views := []struct {
@@ -35,29 +38,34 @@ func (h *Header) Render(activeView usecase.ViewMode, scope usecase.AccountScope,
 		{usecase.ViewModeNotifications, "Notifications"},
 	}
 
-	var viewPills []string
-	for _, v := range views {
+	var navBuilder strings.Builder
+	for i, v := range views {
+		if i > 0 {
+			navBuilder.WriteByte(' ')
+		}
 		if v.id == activeView {
-			pill := lipgloss.NewStyle().
+			navBuilder.WriteString(lipgloss.NewStyle().
 				Bold(true).
 				Foreground(h.theme.P.HighlightText).
 				Background(h.theme.P.Highlight).
 				Padding(0, 1).
-				Render(v.label)
-			viewPills = append(viewPills, pill)
+				Render(v.label))
 		} else {
-			pill := lipgloss.NewStyle().
+			navBuilder.WriteString(lipgloss.NewStyle().
 				Foreground(h.theme.P.Muted).
 				Padding(0, 1).
-				Render(v.label)
-			viewPills = append(viewPills, pill)
+				Render(v.label))
 		}
 	}
-	nav := strings.Join(viewPills, " ")
+	nav := navBuilder.String()
 
 	scopeText := "● Unified (All Accounts)"
 	if !scope.IsUnified {
-		scopeText = fmt.Sprintf("◆ Account: %s", accountName)
+		if accountName != "" {
+			scopeText = fmt.Sprintf("◆ Account: %s", accountName)
+		} else {
+			scopeText = fmt.Sprintf("◆ Account: %s", scope.AccountID)
+		}
 	}
 	scopeBadge := h.theme.ScopeBadge.Render(scopeText)
 
@@ -70,5 +78,11 @@ func (h *Header) Render(activeView usecase.ViewMode, scope usecase.AccountScope,
 		gapWidth = 1
 	}
 
-	return lipgloss.JoinHorizontal(lipgloss.Center, left, strings.Repeat(" ", gapWidth), scopeBadge)
+	b.WriteString(left)
+	for range gapWidth {
+		b.WriteByte(' ')
+	}
+	b.WriteString(scopeBadge)
+
+	return b.String()
 }

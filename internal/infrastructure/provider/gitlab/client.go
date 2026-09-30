@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -180,18 +181,26 @@ func (c *Client) ListChanges(ctx context.Context, filter shared.QueryFilter) ([]
 		perPage = 30
 	}
 
-	path := fmt.Sprintf("/merge_requests?scope=all&per_page=%d&order_by=updated_at", perPage)
+	v := url.Values{}
+	v.Set("scope", "all")
+	v.Set("per_page", strconv.Itoa(perPage))
+	v.Set("order_by", "updated_at")
 	if filter.State == "closed" {
-		path += "&state=closed"
+		v.Set("state", "closed")
 	} else if filter.State == "merged" {
-		path += "&state=merged"
+		v.Set("state", "merged")
 	} else {
-		path += "&state=opened"
+		v.Set("state", "opened")
 	}
 
 	if filter.Query != "" {
-		path += fmt.Sprintf("&search=%s", url.QueryEscape(filter.Query))
+		v.Set("search", filter.Query)
 	}
+
+	var pathBuilder strings.Builder
+	pathBuilder.WriteString("/merge_requests?")
+	pathBuilder.WriteString(v.Encode())
+	path := pathBuilder.String()
 
 	req, err := c.newRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
@@ -461,7 +470,15 @@ func (c *Client) ListCommits(ctx context.Context, owner, repo string, number int
 
 func (c *Client) ListChecks(ctx context.Context, owner, repo string, ref string) ([]shared.CheckRun, error) {
 	projectPath := url.QueryEscape(fmt.Sprintf("%s/%s", owner, repo))
-	path := fmt.Sprintf("/projects/%s/pipelines?ref=%s&per_page=1", projectPath, ref)
+	v := url.Values{}
+	v.Set("ref", ref)
+	v.Set("per_page", "1")
+	var pathBuilder strings.Builder
+	pathBuilder.WriteString("/projects/")
+	pathBuilder.WriteString(projectPath)
+	pathBuilder.WriteString("/pipelines?")
+	pathBuilder.WriteString(v.Encode())
+	path := pathBuilder.String()
 	req, err := c.newRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return nil, err
@@ -742,16 +759,24 @@ func (c *Client) ListIssues(ctx context.Context, filter shared.QueryFilter) ([]i
 		perPage = 30
 	}
 
-	path := fmt.Sprintf("/issues?scope=all&per_page=%d&order_by=updated_at", perPage)
+	v := url.Values{}
+	v.Set("scope", "all")
+	v.Set("per_page", strconv.Itoa(perPage))
+	v.Set("order_by", "updated_at")
 	if filter.State == "closed" {
-		path += "&state=closed"
+		v.Set("state", "closed")
 	} else {
-		path += "&state=opened"
+		v.Set("state", "opened")
 	}
 
 	if filter.Query != "" {
-		path += fmt.Sprintf("&search=%s", url.QueryEscape(filter.Query))
+		v.Set("search", filter.Query)
 	}
+
+	var pathBuilder strings.Builder
+	pathBuilder.WriteString("/issues?")
+	pathBuilder.WriteString(v.Encode())
+	path := pathBuilder.String()
 
 	req, err := c.newRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {

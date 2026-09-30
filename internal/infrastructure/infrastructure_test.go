@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/forgedash/forgedash/internal/infrastructure/auth"
 	"github.com/forgedash/forgedash/internal/infrastructure/config"
 	"github.com/forgedash/forgedash/internal/infrastructure/git"
+	"github.com/forgedash/forgedash/internal/infrastructure/provider/forgejo"
 	"github.com/forgedash/forgedash/internal/infrastructure/provider/github"
 	"github.com/forgedash/forgedash/internal/infrastructure/provider/gitlab"
 	"github.com/forgedash/forgedash/internal/infrastructure/provider/mock"
@@ -129,6 +131,76 @@ func TestGitLabClient_MockServer(t *testing.T) {
 	}
 }
 
+func TestForgejoClient_MockServer(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/user":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"username": "codeberg-user",
+			})
+		case "/repos/issues/search":
+			q := r.URL.Query()
+			if q.Get("type") != "pulls" && q.Get("type") != "issues" {
+				http.Error(w, "invalid type", http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode([]map[string]any{
+				{
+					"number": 55,
+					"title":  "Test Forgejo PR",
+					"state":  "open",
+					"repository": map[string]any{
+						"name": "test-repo",
+						"owner": map[string]any{
+							"username": "codeberg-user",
+						},
+					},
+					"user": map[string]any{
+						"username": "codeberg-user",
+					},
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+
+	acc := account.Account{
+		ID:       "forgejo-test",
+		Name:     "Forgejo Test",
+		Provider: account.ForgeForgejo,
+		Host:     "codeberg.org",
+	}
+	client := forgejo.NewClient(acc, "fake-token").WithBaseURL(ts.URL)
+
+	user, err := client.CurrentUser(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if user.Username != "codeberg-user" {
+		t.Errorf("expected codeberg-user, got %s", user.Username)
+	}
+
+	changes, _, err := client.ListChanges(context.Background(), shared.QueryFilter{State: "open", Query: "test"})
+	if err != nil {
+		t.Fatalf("unexpected error listing changes: %v", err)
+	}
+	if len(changes) != 1 || changes[0].Number != 55 {
+		t.Fatalf("expected PR 55, got %+v", changes)
+	}
+
+	issues, _, err := client.ListIssues(context.Background(), shared.QueryFilter{State: "closed", Query: "test"})
+	if err != nil {
+		t.Fatalf("unexpected error listing issues: %v", err)
+	}
+	if len(issues) != 1 || issues[0].Number != 55 {
+		t.Fatalf("expected Issue 55, got %+v", issues)
+	}
+}
+
 func TestMockClients_Fixtures(t *testing.T) {
 	clients := mock.BuildDemoClients()
 	if len(clients) != 3 {
@@ -233,5 +305,80 @@ func TestGitRemoteParsing(t *testing.T) {
 			t.Errorf("ParseGitRemote(%s) = (%s, %s, %s, %s); want (%s, %s, %s, %s)",
 				tc.remote, owner, repo, host, fType, tc.wantOwner, tc.wantRepo, tc.wantHost, tc.wantType)
 		}
+	}
+}
+
+func TestGitService_ValidateBranchName(t *testing.T) {
+	validBranches := []string{
+		"main",
+		"feature/login",
+		"fix-123",
+		"user_profile",
+		"release-1.0.0",
+	}
+
+	for _, b := range validBranches {
+		if err := git.ValidateBranchName(b); err != nil {
+			t.Errorf("expected branch %q to be valid, got: %v", b, err)
+		}
+	}
+
+	invalidBranches := []string{
+		"",
+		"-flag-injection",
+		"--option",
+		"feat/../escape",
+		"feat~1",
+		"feat^2",
+		"feat:branch",
+		"feat?wildcard",
+		"feat*glob",
+		"feat[0]",
+		"feat\\escape",
+		"feat@{upstream}",
+		"feat//double-slash",
+		"/leading-slash",
+		"trailing-slash/",
+		"branch.lock",
+		"branch.",
+		"branch with spaces",
+		"branch\nwithnewline",
+		"branch\x00null",
+	}
+
+	for _, b := range invalidBranches {
+		if err := git.ValidateBranchName(b); err == nil {
+			t.Errorf("expected branch %q to be invalid, but got nil error", b)
+		}
+	}
+}
+
+func TestAuthStore_Permissions(t *testing.T) {
+	tmpDir := t.TempDir()
+	storePath := filepath.Join(tmpDir, "sub", "credentials.json")
+
+	store, err := auth.NewStore(storePath)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+
+	if err := store.Set("test-key", "secret-val"); err != nil {
+		t.Fatalf("failed to set secret: %v", err)
+	}
+
+	fileInfo, err := os.Stat(storePath)
+	if err != nil {
+		t.Fatalf("failed to stat credentials file: %v", err)
+	}
+	if fileInfo.Mode().Perm() != 0600 {
+		t.Errorf("expected file mode 0600, got %#o", fileInfo.Mode().Perm())
+	}
+
+	dirInfo, err := os.Stat(filepath.Dir(storePath))
+	if err != nil {
+		t.Fatalf("failed to stat credentials dir: %v", err)
+	}
+	if dirInfo.Mode().Perm() != 0700 {
+		t.Errorf("expected dir mode 0700, got %#o", dirInfo.Mode().Perm())
 	}
 }

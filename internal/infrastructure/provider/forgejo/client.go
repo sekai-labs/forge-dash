@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -172,15 +173,23 @@ func (c *Client) ListChanges(ctx context.Context, filter shared.QueryFilter) ([]
 		perPage = 30
 	}
 
-	path := fmt.Sprintf("/repos/issues/search?type=pulls&limit=%d&sort=recentupdate", perPage)
+	v := url.Values{}
+	v.Set("type", "pulls")
+	v.Set("limit", strconv.Itoa(perPage))
+	v.Set("sort", "recentupdate")
 	if filter.State == "closed" {
-		path += "&state=closed"
+		v.Set("state", "closed")
 	} else {
-		path += "&state=open"
+		v.Set("state", "open")
 	}
 	if filter.Query != "" {
-		path += fmt.Sprintf("&q=%s", url.QueryEscape(filter.Query))
+		v.Set("q", filter.Query)
 	}
+
+	var pathBuilder strings.Builder
+	pathBuilder.WriteString("/repos/issues/search?")
+	pathBuilder.WriteString(v.Encode())
+	path := pathBuilder.String()
 
 	req, err := c.newRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
@@ -682,15 +691,23 @@ func (c *Client) ListIssues(ctx context.Context, filter shared.QueryFilter) ([]i
 		perPage = 30
 	}
 
-	path := fmt.Sprintf("/repos/issues/search?type=issues&limit=%d&sort=recentupdate", perPage)
+	v := url.Values{}
+	v.Set("type", "issues")
+	v.Set("limit", strconv.Itoa(perPage))
+	v.Set("sort", "recentupdate")
 	if filter.State == "closed" {
-		path += "&state=closed"
+		v.Set("state", "closed")
 	} else {
-		path += "&state=open"
+		v.Set("state", "open")
 	}
 	if filter.Query != "" {
-		path += fmt.Sprintf("&q=%s", url.QueryEscape(filter.Query))
+		v.Set("q", filter.Query)
 	}
+
+	var pathBuilder strings.Builder
+	pathBuilder.WriteString("/repos/issues/search?")
+	pathBuilder.WriteString(v.Encode())
+	path := pathBuilder.String()
 
 	req, err := c.newRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {

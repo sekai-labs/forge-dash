@@ -1,41 +1,33 @@
-# Example ForgeDash Multi-Account Configuration
-# Destination: ~/.config/forgedash/config.yaml
-
-default_view: prs          # Initial view: prs, issues, notifications
-default_mode: unified      # Mode: unified (all accounts aggregated) or scoped (single account)
-theme: default             # Themes: default, nord, dracula, gruvbox, light
-vim_mode: true             # Vim navigation (j/k/g/G/h/l)
-auto_refresh: true         # Background polling
-refresh_interval: 60       # Interval in seconds
+default_view: prs
+default_mode: unified
+theme: default
+vim_mode: true
+auto_refresh: true
+refresh_interval: 60
 
 preview:
-  open: true               # Open preview pane on startup
-  position: right          # Split position: "right" or "bottom"
-  width: 50                # Percentage width when on the right
-
+  open: true
+  position: right
+  width: 50
 accounts:
-  # 1. GitHub (Personal)
   - id: gh-personal
     name: GitHub Personal
     provider: github
     host: github.com
     auth_ref: github
 
-  # 2. GitLab (Work / Self-Managed)
   - id: gl-work
     name: GitLab Engineering
     provider: gitlab
     host: gitlab.com
     auth_ref: gitlab
 
-  # 3. Codeberg / Forgejo (Open Source)
   - id: cb-oss
     name: Codeberg OSS
     provider: forgejo
     host: codeberg.org
     auth_ref: codeberg
 
-# Section Tabs in PR view
 pr_sections:
   - title: Needs Review
     filters: "is:open review-requested:@me"
@@ -47,7 +39,6 @@ pr_sections:
     filters: "is:open"
     limit: 25
 
-# Section Tabs in Issues view
 issue_sections:
   - title: Assigned
     filters: "is:open assignee:@me"

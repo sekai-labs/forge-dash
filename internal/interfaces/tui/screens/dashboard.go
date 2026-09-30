@@ -8,8 +8,6 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"os/exec"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -24,7 +22,15 @@ import (
 	"github.com/forgedash/forgedash/internal/interfaces/tui/components"
 	"github.com/forgedash/forgedash/internal/interfaces/tui/components/modals"
 	"github.com/forgedash/forgedash/internal/interfaces/tui/keymap"
+	"github.com/forgedash/forgedash/internal/interfaces/tui/safebrowser"
 	"github.com/forgedash/forgedash/internal/interfaces/tui/styles"
+)
+
+type FocusedPane int
+
+const (
+	PaneTable FocusedPane = iota
+	PanePreview
 )
 
 type ModalState int
@@ -71,7 +77,7 @@ type DashboardModel struct {
 	sections      []usecase.SectionFilter
 	previewOpen   bool
 	previewPos    string
-
+	focusedPane   FocusedPane
 	changes       []change.ChangeRequest
 	issues        []issue.Issue
 	notifications []notification.Notification
@@ -152,8 +158,8 @@ func NewDashboardModel(
 		sections:      sections,
 		previewOpen:   cfg.Preview.Open,
 		previewPos:    cfg.Preview.Position,
+		focusedPane:   PaneTable,
 		searchInput:   ti,
-		commentInput:  ci,
 		header:        components.NewHeader(theme),
 		sectionTabs:   components.NewSectionTabs(theme),
 		itemTable:     components.NewItemTable(theme),
@@ -247,10 +253,7 @@ func (m *DashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.header.SetWidth(m.width)
-		m.statusBar.SetWidth(m.width)
 		m.recalculateLayout()
-
 	case tickMsg:
 		cmds = append(cmds, m.fetchDataCmd(), m.autoRefreshTick())
 
@@ -275,7 +278,6 @@ func (m *DashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.curComments = msg.comments
 
 	case tea.KeyMsg:
-
 		if m.activeModal != ModalNone {
 			return m.handleModalKey(msg)
 		}
@@ -305,6 +307,73 @@ func (m *DashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cycleView(false)
 			m.loading = true
 			return m, m.fetchDataCmd()
+		case key.Matches(msg, m.keys.Sec1):
+			return m.switchSection(0)
+		case key.Matches(msg, m.keys.Sec2):
+			return m.switchSection(1)
+		case key.Matches(msg, m.keys.Sec3):
+			return m.switchSection(2)
+		case key.Matches(msg, m.keys.Sec4):
+			return m.switchSection(3)
+		case key.Matches(msg, m.keys.Sec5):
+			return m.switchSection(4)
+		case key.Matches(msg, m.keys.TogglePreview):
+			m.previewOpen = !m.previewOpen
+			if !m.previewOpen {
+				m.focusedPane = PaneTable
+			}
+			m.recalculateLayout()
+			return m, nil
+		case key.Matches(msg, m.keys.TogglePreviewPos):
+			if m.previewPos == "right" {
+				m.previewPos = "bottom"
+			} else {
+				m.previewPos = "right"
+			}
+			m.recalculateLayout()
+			return m, nil
+		}
+
+		if m.previewOpen {
+			switch {
+			case key.Matches(msg, m.keys.FocusNext), key.Matches(msg, m.keys.ToggleFocus):
+				if m.focusedPane == PaneTable {
+					m.focusedPane = PanePreview
+				} else {
+					m.focusedPane = PaneTable
+				}
+				m.syncFocus()
+				return m, nil
+			case key.Matches(msg, m.keys.FocusPrev):
+				if m.focusedPane == PanePreview {
+					m.focusedPane = PaneTable
+				} else {
+					m.focusedPane = PanePreview
+				}
+				m.syncFocus()
+				return m, nil
+			}
+		}
+
+		if m.previewOpen && m.focusedPane == PanePreview {
+			switch {
+			case key.Matches(msg, m.keys.NextPreviewTab):
+				m.previewPane.NextTab()
+				return m, nil
+			case key.Matches(msg, m.keys.PrevPreviewTab):
+				m.previewPane.PrevTab()
+				return m, nil
+			case key.Matches(msg, m.keys.PreviewPageDown), key.Matches(msg, m.keys.Down), key.Matches(msg, m.keys.HalfPageDown):
+				m.previewPane.ScrollDown()
+				return m, nil
+			case key.Matches(msg, m.keys.PreviewPageUp), key.Matches(msg, m.keys.Up), key.Matches(msg, m.keys.HalfPageUp):
+				m.previewPane.ScrollUp()
+				return m, nil
+			case key.Matches(msg, m.keys.Esc):
+				m.focusedPane = PaneTable
+				m.syncFocus()
+				return m, nil
+			}
 		}
 
 		total := m.activeTotalCount()
@@ -315,11 +384,21 @@ func (m *DashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Up):
 			m.itemTable.MoveUp()
 			return m, m.fetchItemDetailCmd()
-		case key.Matches(msg, m.keys.FirstLine):
+		case key.Matches(msg, m.keys.FirstLine), key.Matches(msg, m.keys.Top):
 			m.itemTable.MoveTop()
 			return m, m.fetchItemDetailCmd()
-		case key.Matches(msg, m.keys.LastLine):
+		case key.Matches(msg, m.keys.LastLine), key.Matches(msg, m.keys.Bottom):
 			m.itemTable.MoveBottom(total)
+			return m, m.fetchItemDetailCmd()
+		case key.Matches(msg, m.keys.HalfPageDown):
+			for range 5 {
+				m.itemTable.MoveDown(total)
+			}
+			return m, m.fetchItemDetailCmd()
+		case key.Matches(msg, m.keys.HalfPageUp):
+			for range 5 {
+				m.itemTable.MoveUp()
+			}
 			return m, m.fetchItemDetailCmd()
 		case key.Matches(msg, m.keys.NextSection):
 			if len(m.sections) > 0 {
@@ -339,43 +418,26 @@ func (m *DashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.loading = true
 				return m, m.fetchDataCmd()
 			}
-		case key.Matches(msg, m.keys.Sec1):
-			return m.switchSection(0)
-		case key.Matches(msg, m.keys.Sec2):
-			return m.switchSection(1)
-		case key.Matches(msg, m.keys.Sec3):
-			return m.switchSection(2)
-		case key.Matches(msg, m.keys.Sec4):
-			return m.switchSection(3)
-		case key.Matches(msg, m.keys.Sec5):
-			return m.switchSection(4)
-		}
-
-		switch {
-		case key.Matches(msg, m.keys.TogglePreview):
-			m.previewOpen = !m.previewOpen
-			m.recalculateLayout()
-			return m, nil
-		case key.Matches(msg, m.keys.TogglePreviewPos):
-			if m.previewPos == "right" {
-				m.previewPos = "bottom"
-			} else {
-				m.previewPos = "right"
-			}
-			m.recalculateLayout()
-			return m, nil
 		case key.Matches(msg, m.keys.NextPreviewTab):
-			m.previewPane.NextTab()
-			return m, nil
+			if m.previewOpen {
+				m.previewPane.NextTab()
+				return m, nil
+			}
 		case key.Matches(msg, m.keys.PrevPreviewTab):
-			m.previewPane.PrevTab()
-			return m, nil
+			if m.previewOpen {
+				m.previewPane.PrevTab()
+				return m, nil
+			}
 		case key.Matches(msg, m.keys.PreviewPageDown):
-			m.previewPane.ScrollDown()
-			return m, nil
+			if m.previewOpen {
+				m.previewPane.ScrollDown()
+				return m, nil
+			}
 		case key.Matches(msg, m.keys.PreviewPageUp):
-			m.previewPane.ScrollUp()
-			return m, nil
+			if m.previewOpen {
+				m.previewPane.ScrollUp()
+				return m, nil
+			}
 		}
 
 		switch {
@@ -399,6 +461,7 @@ func (m *DashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case key.Matches(msg, m.keys.DiffView):
 			m.previewOpen = true
+			m.focusedPane = PanePreview
 			m.previewPane.SetTab(components.PreviewTabFiles)
 			m.recalculateLayout()
 			return m, nil
@@ -671,10 +734,53 @@ func (m *DashboardModel) setupSectionsForActiveView() {
 	m.sections = sections
 }
 
+func (m *DashboardModel) syncFocus() {
+	if !m.previewOpen {
+		m.focusedPane = PaneTable
+		m.itemTable.SetFocused(true)
+		m.previewPane.SetFocused(false)
+		return
+	}
+	if m.focusedPane == PanePreview {
+		m.itemTable.SetFocused(false)
+		m.previewPane.SetFocused(true)
+	} else {
+		m.itemTable.SetFocused(true)
+		m.previewPane.SetFocused(false)
+	}
+}
+
+func (m *DashboardModel) FocusedPane() FocusedPane {
+	return m.focusedPane
+}
+
+func (m *DashboardModel) SetFocusedPane(pane FocusedPane) {
+	m.focusedPane = pane
+	m.syncFocus()
+}
+func (m *DashboardModel) PreviewOpen() bool {
+	return m.previewOpen
+}
+
 func (m *DashboardModel) recalculateLayout() {
-	contentHeight := m.height - 5
-	if contentHeight < 6 {
-		contentHeight = 6
+	m.syncFocus()
+
+	if m.width > 0 {
+		m.header.SetWidth(m.width)
+		m.statusBar.SetWidth(m.width)
+	}
+
+	headerH := 1
+	tabsH := 1
+	statusBarH := 1
+	bodyHeight := m.height - headerH - tabsH - statusBarH
+	if bodyHeight < 4 {
+		bodyHeight = 4
+	}
+
+	contentHeight := bodyHeight - 2
+	if contentHeight < 1 {
+		contentHeight = 1
 	}
 
 	tableFullWidth := m.width - 2
@@ -687,26 +793,46 @@ func (m *DashboardModel) recalculateLayout() {
 		return
 	}
 
-	if m.previewPos == "right" {
-		tableWidth := (m.width - 3) / 2
-		if tableWidth < 25 {
-			tableWidth = 25
+	isWide := m.width >= 120
+	sideBySide := m.previewPos == "right"
+	if !isWide && m.previewPos != "right" {
+		sideBySide = false
+	}
+
+	if sideBySide {
+
+		availWidth := m.width - 5
+		if availWidth < 40 {
+			availWidth = 40
 		}
-		previewWidth := m.width - tableWidth - 3
+
+		tableWidth := (availWidth * 55) / 100
+		if tableWidth < 30 {
+			tableWidth = 30
+		}
+		previewWidth := availWidth - tableWidth
 		if previewWidth < 20 {
 			previewWidth = 20
 		}
+
 		m.itemTable.SetSize(tableWidth, contentHeight)
 		m.previewPane.SetSize(previewWidth, contentHeight)
 	} else {
-		halfHeight := contentHeight / 2
-		if halfHeight < 3 {
-			halfHeight = 3
+
+		availHeight := bodyHeight - 4
+		if availHeight < 4 {
+			availHeight = 4
 		}
-		prevHeight := contentHeight - halfHeight
-		if prevHeight < 3 {
-			prevHeight = 3
+
+		halfHeight := (availHeight * 55) / 100
+		if halfHeight < 2 {
+			halfHeight = 2
 		}
+		prevHeight := availHeight - halfHeight
+		if prevHeight < 2 {
+			prevHeight = 2
+		}
+
 		m.itemTable.SetSize(tableFullWidth, halfHeight)
 		m.previewPane.SetSize(tableFullWidth, prevHeight)
 	}
@@ -767,15 +893,21 @@ func (m *DashboardModel) activeItemNumber() string {
 }
 
 func (m *DashboardModel) View() string {
-	if m.width < 60 || m.height < 12 {
+	if m.width < 80 || m.height < 24 {
+		var warn strings.Builder
+		warn.Grow(128)
+		warn.WriteString(m.theme.Title.Render("⚡ FORGEDASH"))
+		warn.WriteString("\n\n")
+		warn.WriteString(m.theme.Subtitle.Render(fmt.Sprintf("Terminal window is too small (%dx%d).\nMinimum required: 80x24. Please resize.", m.width, m.height)))
 		return lipgloss.Place(
 			m.width,
 			m.height,
 			lipgloss.Center,
 			lipgloss.Center,
-			m.theme.Subtitle.Render("Terminal window is too small for ForgeDash. Please resize."),
+			warn.String(),
 		)
 	}
+
 	accountName := "None"
 	if !m.activeScope.IsUnified {
 		if c, ok := m.dashboardUC.GetClient(m.activeScope.AccountID); ok {
@@ -789,7 +921,6 @@ func (m *DashboardModel) View() string {
 	}
 	sectionTabsView := m.sectionTabs.Render(m.sections, m.activeSection, counts)
 
-	var mainContent string
 	var tableContent string
 	switch m.activeView {
 	case usecase.ViewModePRs:
@@ -800,8 +931,13 @@ func (m *DashboardModel) View() string {
 		tableContent = m.itemTable.RenderNotifications(m.notifications)
 	}
 
-	tableBox := m.theme.Box.Render(tableContent)
+	tableBoxStyle := m.theme.Box.Width(m.itemTable.Width()).Height(m.itemTable.Height())
+	if !m.previewOpen || m.focusedPane == PaneTable {
+		tableBoxStyle = m.theme.BoxActive.Width(m.itemTable.Width()).Height(m.itemTable.Height())
+	}
+	tableBox := tableBoxStyle.Render(tableContent)
 
+	var mainContent string
 	if !m.previewOpen {
 		mainContent = tableBox
 	} else {
@@ -817,9 +953,18 @@ func (m *DashboardModel) View() string {
 			previewContent = m.previewPane.RenderChange(nil, nil, nil, nil, nil)
 		}
 
-		previewBox := m.theme.PreviewBox.Render(previewContent)
+		previewBoxStyle := m.theme.PreviewBox.Width(m.previewPane.Width()).Height(m.previewPane.Height())
+		if m.focusedPane == PanePreview {
+			previewBoxStyle = m.theme.BoxActive.Width(m.previewPane.Width()).Height(m.previewPane.Height())
+		}
+		previewBox := previewBoxStyle.Render(previewContent)
 
-		if m.previewPos == "right" {
+		sideBySide := m.previewPos == "right"
+		if m.width < 120 && m.previewPos != "right" {
+			sideBySide = false
+		}
+
+		if sideBySide {
 			mainContent = lipgloss.JoinHorizontal(lipgloss.Top, tableBox, " ", previewBox)
 		} else {
 			mainContent = lipgloss.JoinVertical(lipgloss.Left, tableBox, previewBox)
@@ -828,18 +973,26 @@ func (m *DashboardModel) View() string {
 
 	statusBarView := m.statusBar.Render(m.itemTable.Cursor(), m.activeTotalCount(), m.errors, m.loading)
 	if m.statusFlash != "" && time.Now().Before(m.statusFlashExpiry) {
+		var flashB strings.Builder
+		flashB.Grow(len(m.statusFlash) + 8)
+		flashB.WriteString("⚡ ")
+		flashB.WriteString(m.statusFlash)
 		statusBarView = m.theme.StatusBar.Width(m.width).Render(
-			lipgloss.NewStyle().Bold(true).Foreground(m.theme.P.Secondary).Render("⚡ " + m.statusFlash),
+			lipgloss.NewStyle().Bold(true).Foreground(m.theme.P.Secondary).Render(flashB.String()),
 		)
 	}
 
-	fullView := lipgloss.JoinVertical(lipgloss.Left,
-		headerView,
-		sectionTabsView,
-		mainContent,
-		statusBarView,
-	)
+	var fullViewB strings.Builder
+	fullViewB.Grow((m.height + 2) * (m.width + 4))
+	fullViewB.WriteString(headerView)
+	fullViewB.WriteByte('\n')
+	fullViewB.WriteString(sectionTabsView)
+	fullViewB.WriteByte('\n')
+	fullViewB.WriteString(mainContent)
+	fullViewB.WriteByte('\n')
+	fullViewB.WriteString(statusBarView)
 
+	fullView := fullViewB.String()
 	if m.activeModal != ModalNone {
 		var modalBox string
 		switch m.activeModal {
@@ -891,37 +1044,34 @@ func placeOverlay(w, h int, overlay, background string) string {
 		leftPad = 0
 	}
 
-	var res []string
+	var b strings.Builder
+	b.Grow((w + 1) * h)
+
 	for y := range h {
-		bgLine := ""
-		if y < len(bgLines) {
-			bgLine = bgLines[y]
+		if y > 0 {
+			b.WriteByte('\n')
 		}
 
 		if y >= topPad && y < topPad+ovH {
 			ovLineIdx := y - topPad
 			if ovLineIdx < len(overlayLines) {
 				ovLine := overlayLines[ovLineIdx]
-				leftSpacing := strings.Repeat(" ", leftPad)
-				res = append(res, leftSpacing+ovLine)
+				for range leftPad {
+					b.WriteByte(' ')
+				}
+				b.WriteString(ovLine)
 				continue
 			}
 		}
-		res = append(res, bgLine)
+
+		if y < len(bgLines) {
+			b.WriteString(bgLines[y])
+		}
 	}
 
-	return strings.Join(res, "\n")
+	return b.String()
 }
 
 func openURL(rawURL string) error {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", rawURL)
-	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", rawURL)
-	default:
-		cmd = exec.Command("xdg-open", rawURL)
-	}
-	return cmd.Start()
+	return safebrowser.OpenURL(rawURL)
 }

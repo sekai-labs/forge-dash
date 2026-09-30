@@ -50,13 +50,8 @@ Generate a Personal Access Token:
 Log in:
 
 ```bash
-# GitHub
 forgedash auth login --provider github --token "<TOKEN>" --name "GitHub Personal"
-
-# GitLab
 forgedash auth login --provider gitlab --host gitlab.com --token "<TOKEN>" --name "GitLab Work"
-
-# Codeberg / Forgejo
 forgedash auth login --provider forgejo --host codeberg.org --token "<TOKEN>" --name "Codeberg OSS"
 ```
 

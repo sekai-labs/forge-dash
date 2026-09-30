@@ -17,18 +17,26 @@ func NewSectionTabs(theme *styles.Theme) *SectionTabs {
 }
 
 func (s *SectionTabs) Render(sections []usecase.SectionFilter, activeIdx int, counts map[int]int) string {
-	var tabs []string
+	var b strings.Builder
+	b.Grow(256)
+
 	for i, sec := range sections {
+		if i > 0 {
+			b.WriteString("  ")
+		}
+
 		countStr := ""
 		if c, ok := counts[i]; ok {
-			countStr = fmt.Sprintf(" (%d)", c)
+			countStr = fmt.Sprintf(" [%d]", c)
 		}
-		label := fmt.Sprintf("[%d] %s%s", i+1, sec.Title, countStr)
+
+		label := fmt.Sprintf("%d %s%s", i+1, sec.Title, countStr)
 		if i == activeIdx {
-			tabs = append(tabs, s.theme.SectionActive.Render(label))
+			b.WriteString(s.theme.SectionActive.Render(label))
 		} else {
-			tabs = append(tabs, s.theme.SectionInactive.Render(label))
+			b.WriteString(s.theme.SectionInactive.Render(label))
 		}
 	}
-	return strings.Join(tabs, "  ")
+
+	return b.String()
 }
