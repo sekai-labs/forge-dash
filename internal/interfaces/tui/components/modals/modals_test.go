@@ -6,9 +6,9 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
-	"github.com/forgedash/forgedash/internal/domain/account"
-	"github.com/forgedash/forgedash/internal/interfaces/tui/components/modals"
-	"github.com/forgedash/forgedash/internal/interfaces/tui/styles"
+	"github.com/sekai-labs/forge-dash/internal/domain/account"
+	"github.com/sekai-labs/forge-dash/internal/interfaces/tui/components/modals"
+	"github.com/sekai-labs/forge-dash/internal/interfaces/tui/styles"
 )
 
 func modalLines(t *testing.T, rendered string) []string {

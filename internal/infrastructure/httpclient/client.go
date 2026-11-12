@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/forgedash/forgedash/internal/domain/shared"
+	"github.com/sekai-labs/forge-dash/internal/domain/shared"
 )
 
 type Client struct {

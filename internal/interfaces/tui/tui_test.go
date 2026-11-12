@@ -8,12 +8,12 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/forgedash/forgedash/internal/application/ports"
-	"github.com/forgedash/forgedash/internal/application/usecase"
-	"github.com/forgedash/forgedash/internal/domain/account"
-	"github.com/forgedash/forgedash/internal/infrastructure/config"
-	"github.com/forgedash/forgedash/internal/infrastructure/provider/mock"
-	"github.com/forgedash/forgedash/internal/interfaces/tui/screens"
+	"github.com/sekai-labs/forge-dash/internal/application/ports"
+	"github.com/sekai-labs/forge-dash/internal/application/usecase"
+	"github.com/sekai-labs/forge-dash/internal/domain/account"
+	"github.com/sekai-labs/forge-dash/internal/infrastructure/config"
+	"github.com/sekai-labs/forge-dash/internal/infrastructure/provider/mock"
+	"github.com/sekai-labs/forge-dash/internal/interfaces/tui/screens"
 )
 
 // newTestDashboard builds a dashboard with deterministic demo data. The

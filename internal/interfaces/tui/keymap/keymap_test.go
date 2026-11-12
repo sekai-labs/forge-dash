@@ -3,7 +3,7 @@ package keymap_test
 import (
 	"testing"
 
-	"github.com/forgedash/forgedash/internal/interfaces/tui/keymap"
+	"github.com/sekai-labs/forge-dash/internal/interfaces/tui/keymap"
 )
 
 func TestDefaultKeyMap(t *testing.T) {

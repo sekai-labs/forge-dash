@@ -1,4 +1,4 @@
-module github.com/forgedash/forgedash
+module github.com/sekai-labs/forge-dash
 
 go 1.26.11
 

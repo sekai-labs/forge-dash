@@ -7,7 +7,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/forgedash/forgedash/internal/domain/account"
+	"github.com/sekai-labs/forge-dash/internal/domain/account"
 )
 
 type SectionConfig struct {

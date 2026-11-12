@@ -14,7 +14,7 @@ The standalone multi-forge terminal dashboard for Pull Requests, Merge Requests,
 ### Using `go install`
 
 ```bash
-go install github.com/forgedash/forgedash/cmd/forgedash@latest
+go install github.com/sekai-labs/forge-dash/cmd/forgedash@latest
 ```
 
 Make sure `$HOME/go/bin` is in your `PATH`:
@@ -26,8 +26,8 @@ export PATH="$HOME/go/bin:$PATH"
 ### From Source
 
 ```bash
-git clone https://github.com/forgedash/forgedash.git
-cd forgedash
+git clone https://codeberg.org/sekai-labs/forge-dash.git
+cd forge-dash
 make build
 ./bin/forgedash
 ```

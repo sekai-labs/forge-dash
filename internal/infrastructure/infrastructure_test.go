@@ -9,15 +9,15 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/forgedash/forgedash/internal/domain/account"
-	"github.com/forgedash/forgedash/internal/domain/shared"
-	"github.com/forgedash/forgedash/internal/infrastructure/auth"
-	"github.com/forgedash/forgedash/internal/infrastructure/config"
-	"github.com/forgedash/forgedash/internal/infrastructure/git"
-	"github.com/forgedash/forgedash/internal/infrastructure/provider/forgejo"
-	"github.com/forgedash/forgedash/internal/infrastructure/provider/github"
-	"github.com/forgedash/forgedash/internal/infrastructure/provider/gitlab"
-	"github.com/forgedash/forgedash/internal/infrastructure/provider/mock"
+	"github.com/sekai-labs/forge-dash/internal/domain/account"
+	"github.com/sekai-labs/forge-dash/internal/domain/shared"
+	"github.com/sekai-labs/forge-dash/internal/infrastructure/auth"
+	"github.com/sekai-labs/forge-dash/internal/infrastructure/config"
+	"github.com/sekai-labs/forge-dash/internal/infrastructure/git"
+	"github.com/sekai-labs/forge-dash/internal/infrastructure/provider/forgejo"
+	"github.com/sekai-labs/forge-dash/internal/infrastructure/provider/github"
+	"github.com/sekai-labs/forge-dash/internal/infrastructure/provider/gitlab"
+	"github.com/sekai-labs/forge-dash/internal/infrastructure/provider/mock"
 )
 
 func TestGitHubClient_MockServer(t *testing.T) {

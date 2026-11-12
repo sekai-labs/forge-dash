@@ -2,9 +2,9 @@ package change
 
 import (
 	"fmt"
-	"github.com/forgedash/forgedash/internal/domain/account"
-	"github.com/forgedash/forgedash/internal/domain/forge"
-	"github.com/forgedash/forgedash/internal/domain/shared"
+	"github.com/sekai-labs/forge-dash/internal/domain/account"
+	"github.com/sekai-labs/forge-dash/internal/domain/forge"
+	"github.com/sekai-labs/forge-dash/internal/domain/shared"
 	"strconv"
 	"time"
 )

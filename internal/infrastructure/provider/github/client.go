@@ -12,16 +12,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/forgedash/forgedash/internal/application/ports"
-	"github.com/forgedash/forgedash/internal/domain/account"
-	"github.com/forgedash/forgedash/internal/domain/change"
-	"github.com/forgedash/forgedash/internal/domain/forge"
-	"github.com/forgedash/forgedash/internal/domain/issue"
-	"github.com/forgedash/forgedash/internal/domain/notification"
-	"github.com/forgedash/forgedash/internal/domain/repository"
-	"github.com/forgedash/forgedash/internal/domain/review"
-	"github.com/forgedash/forgedash/internal/domain/shared"
-	"github.com/forgedash/forgedash/internal/infrastructure/httpclient"
+	"github.com/sekai-labs/forge-dash/internal/application/ports"
+	"github.com/sekai-labs/forge-dash/internal/domain/account"
+	"github.com/sekai-labs/forge-dash/internal/domain/change"
+	"github.com/sekai-labs/forge-dash/internal/domain/forge"
+	"github.com/sekai-labs/forge-dash/internal/domain/issue"
+	"github.com/sekai-labs/forge-dash/internal/domain/notification"
+	"github.com/sekai-labs/forge-dash/internal/domain/repository"
+	"github.com/sekai-labs/forge-dash/internal/domain/review"
+	"github.com/sekai-labs/forge-dash/internal/domain/shared"
+	"github.com/sekai-labs/forge-dash/internal/infrastructure/httpclient"
 )
 
 type Client struct {

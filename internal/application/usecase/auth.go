@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/forgedash/forgedash/internal/application/ports"
-	"github.com/forgedash/forgedash/internal/domain/account"
-	"github.com/forgedash/forgedash/internal/domain/shared"
+	"github.com/sekai-labs/forge-dash/internal/application/ports"
+	"github.com/sekai-labs/forge-dash/internal/domain/account"
+	"github.com/sekai-labs/forge-dash/internal/domain/shared"
 )
 
 type AuthUseCase struct {

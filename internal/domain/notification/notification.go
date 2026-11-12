@@ -3,8 +3,8 @@ package notification
 import (
 	"time"
 
-	"github.com/forgedash/forgedash/internal/domain/account"
-	"github.com/forgedash/forgedash/internal/domain/forge"
+	"github.com/sekai-labs/forge-dash/internal/domain/account"
+	"github.com/sekai-labs/forge-dash/internal/domain/forge"
 )
 
 type SubjectType string

@@ -6,13 +6,13 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
-	"github.com/forgedash/forgedash/internal/domain/account"
-	"github.com/forgedash/forgedash/internal/domain/change"
-	"github.com/forgedash/forgedash/internal/domain/forge"
-	"github.com/forgedash/forgedash/internal/domain/issue"
-	"github.com/forgedash/forgedash/internal/domain/shared"
-	"github.com/forgedash/forgedash/internal/interfaces/tui/components"
-	"github.com/forgedash/forgedash/internal/interfaces/tui/styles"
+	"github.com/sekai-labs/forge-dash/internal/domain/account"
+	"github.com/sekai-labs/forge-dash/internal/domain/change"
+	"github.com/sekai-labs/forge-dash/internal/domain/forge"
+	"github.com/sekai-labs/forge-dash/internal/domain/issue"
+	"github.com/sekai-labs/forge-dash/internal/domain/shared"
+	"github.com/sekai-labs/forge-dash/internal/interfaces/tui/components"
+	"github.com/sekai-labs/forge-dash/internal/interfaces/tui/styles"
 )
 
 func demoChangeRequest() *change.ChangeRequest {

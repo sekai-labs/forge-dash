@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/forgedash/forgedash/internal/interfaces/cli"
+	"github.com/sekai-labs/forge-dash/internal/interfaces/cli"
 )
 
 func main() {

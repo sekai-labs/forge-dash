@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/forgedash/forgedash/internal/domain/issue"
-	"github.com/forgedash/forgedash/internal/domain/shared"
+	"github.com/sekai-labs/forge-dash/internal/domain/issue"
+	"github.com/sekai-labs/forge-dash/internal/domain/shared"
 )
 
 type IssueActionUseCase struct {

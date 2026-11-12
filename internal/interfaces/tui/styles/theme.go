@@ -5,9 +5,9 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/forgedash/forgedash/internal/domain/account"
-	"github.com/forgedash/forgedash/internal/domain/change"
-	"github.com/forgedash/forgedash/internal/domain/issue"
+	"github.com/sekai-labs/forge-dash/internal/domain/account"
+	"github.com/sekai-labs/forge-dash/internal/domain/change"
+	"github.com/sekai-labs/forge-dash/internal/domain/issue"
 )
 
 type Palette struct {

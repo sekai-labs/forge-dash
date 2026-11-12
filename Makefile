@@ -4,9 +4,9 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "v0.
 COMMIT_SHA ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "dev")
 BUILD_DATE ?= $(shell date -u +'%Y-%m-%dT%H:%M:%SZ')
 
-LDFLAGS := -X github.com/forgedash/forgedash/internal/interfaces/cli.Version=$(VERSION) \
-           -X github.com/forgedash/forgedash/internal/interfaces/cli.CommitSHA=$(COMMIT_SHA) \
-           -X github.com/forgedash/forgedash/internal/interfaces/cli.BuildDate=$(BUILD_DATE)
+LDFLAGS := -X github.com/sekai-labs/forge-dash/internal/interfaces/cli.Version=$(VERSION) \
+           -X github.com/sekai-labs/forge-dash/internal/interfaces/cli.CommitSHA=$(COMMIT_SHA) \
+           -X github.com/sekai-labs/forge-dash/internal/interfaces/cli.BuildDate=$(BUILD_DATE)
 
 .PHONY: all build run demo test test-race fmt vet lint clean
 

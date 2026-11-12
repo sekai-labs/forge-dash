@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 
-	"github.com/forgedash/forgedash/internal/application/ports"
+	"github.com/sekai-labs/forge-dash/internal/application/ports"
 )
 
 type DiagnosticItem struct {

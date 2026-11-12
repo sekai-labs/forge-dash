@@ -6,8 +6,8 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/forgedash/forgedash/internal/application/usecase"
-	"github.com/forgedash/forgedash/internal/interfaces/tui/styles"
+	"github.com/sekai-labs/forge-dash/internal/application/usecase"
+	"github.com/sekai-labs/forge-dash/internal/interfaces/tui/styles"
 )
 
 type Header struct {

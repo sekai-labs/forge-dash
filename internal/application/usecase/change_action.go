@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/forgedash/forgedash/internal/application/ports"
-	"github.com/forgedash/forgedash/internal/domain/change"
-	"github.com/forgedash/forgedash/internal/domain/forge"
-	"github.com/forgedash/forgedash/internal/domain/review"
-	"github.com/forgedash/forgedash/internal/domain/shared"
+	"github.com/sekai-labs/forge-dash/internal/application/ports"
+	"github.com/sekai-labs/forge-dash/internal/domain/change"
+	"github.com/sekai-labs/forge-dash/internal/domain/forge"
+	"github.com/sekai-labs/forge-dash/internal/domain/review"
+	"github.com/sekai-labs/forge-dash/internal/domain/shared"
 )
 
 type ChangeActionUseCase struct {

@@ -7,9 +7,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/forgedash/forgedash/internal/application/usecase"
-	"github.com/forgedash/forgedash/internal/infrastructure/config"
-	"github.com/forgedash/forgedash/internal/interfaces/tui/screens"
+	"github.com/sekai-labs/forge-dash/internal/application/usecase"
+	"github.com/sekai-labs/forge-dash/internal/infrastructure/config"
+	"github.com/sekai-labs/forge-dash/internal/interfaces/tui/screens"
 )
 
 var positionPattern = regexp.MustCompile(`\b1/(\d+)\b`)

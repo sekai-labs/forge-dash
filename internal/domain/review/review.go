@@ -3,7 +3,7 @@ package review
 import (
 	"time"
 
-	"github.com/forgedash/forgedash/internal/domain/shared"
+	"github.com/sekai-labs/forge-dash/internal/domain/shared"
 )
 
 type ReviewState string

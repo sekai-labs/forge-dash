@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/forgedash/forgedash/internal/domain/account"
+	"github.com/sekai-labs/forge-dash/internal/domain/account"
 )
 
 type Repository struct {

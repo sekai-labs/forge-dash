@@ -7,7 +7,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/forgedash/forgedash/internal/domain/account"
+	"github.com/sekai-labs/forge-dash/internal/domain/account"
 )
 
 type Service struct {

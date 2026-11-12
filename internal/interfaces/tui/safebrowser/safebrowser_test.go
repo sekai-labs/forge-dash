@@ -3,7 +3,7 @@ package safebrowser_test
 import (
 	"testing"
 
-	"github.com/forgedash/forgedash/internal/interfaces/tui/safebrowser"
+	"github.com/sekai-labs/forge-dash/internal/interfaces/tui/safebrowser"
 )
 
 func TestValidateURL_Valid(t *testing.T) {

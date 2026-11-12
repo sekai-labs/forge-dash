@@ -3,10 +3,10 @@ package styles_test
 import (
 	"testing"
 
-	"github.com/forgedash/forgedash/internal/domain/account"
-	"github.com/forgedash/forgedash/internal/domain/change"
-	"github.com/forgedash/forgedash/internal/domain/issue"
-	"github.com/forgedash/forgedash/internal/interfaces/tui/styles"
+	"github.com/sekai-labs/forge-dash/internal/domain/account"
+	"github.com/sekai-labs/forge-dash/internal/domain/change"
+	"github.com/sekai-labs/forge-dash/internal/domain/issue"
+	"github.com/sekai-labs/forge-dash/internal/interfaces/tui/styles"
 )
 
 func TestTruncateAndPad(t *testing.T) {

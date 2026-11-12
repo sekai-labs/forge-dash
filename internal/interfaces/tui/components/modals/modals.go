@@ -6,9 +6,9 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/forgedash/forgedash/internal/domain/account"
-	"github.com/forgedash/forgedash/internal/interfaces/tui/keymap"
-	"github.com/forgedash/forgedash/internal/interfaces/tui/styles"
+	"github.com/sekai-labs/forge-dash/internal/domain/account"
+	"github.com/sekai-labs/forge-dash/internal/interfaces/tui/keymap"
+	"github.com/sekai-labs/forge-dash/internal/interfaces/tui/styles"
 )
 
 func RenderHelpModal(theme *styles.Theme, width, height, page int) string {
