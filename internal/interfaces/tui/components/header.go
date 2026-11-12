@@ -23,66 +23,106 @@ func (h *Header) SetWidth(w int) {
 	h.width = w
 }
 
+type headerViewInfo struct {
+	id    usecase.ViewMode
+	label string
+	short string
+}
+
+var headerViews = []headerViewInfo{
+	{usecase.ViewModePRs, "PRs", "PR"},
+	{usecase.ViewModeIssues, "Issues", "IS"},
+	{usecase.ViewModeNotifications, "Notifications", "NT"},
+}
+
 func (h *Header) Render(activeView usecase.ViewMode, scope usecase.AccountScope, accountName string) string {
-	var b strings.Builder
-	b.Grow(h.width + 64)
-
-	logo := h.theme.Title.Render("⚡ FORGEDASH")
-
-	views := []struct {
-		id    usecase.ViewMode
-		label string
-	}{
-		{usecase.ViewModePRs, "PRs"},
-		{usecase.ViewModeIssues, "Issues"},
-		{usecase.ViewModeNotifications, "Notifications"},
+	w := h.width
+	if w <= 0 {
+		w = 80
 	}
 
-	var navBuilder strings.Builder
-	for i, v := range views {
-		if i > 0 {
-			navBuilder.WriteByte(' ')
+	logoStyle := lipgloss.NewStyle().Bold(true).Foreground(h.theme.P.Primary)
+	inactiveStyle := lipgloss.NewStyle().Foreground(h.theme.P.Muted)
+	activeStyle := lipgloss.NewStyle().Bold(true).Foreground(h.theme.P.Primary)
+
+	logo := logoStyle.Render("FORGEDASH")
+
+	renderNav := func(shortInactive bool) string {
+		var b strings.Builder
+		for i, v := range headerViews {
+			if i > 0 {
+				b.WriteString("  ")
+			}
+			label := v.label
+			if shortInactive && v.id != activeView {
+				label = v.short
+			}
+			if v.id == activeView {
+				b.WriteString(activeStyle.Render(label))
+			} else {
+				b.WriteString(inactiveStyle.Render(label))
+			}
 		}
-		if v.id == activeView {
-			navBuilder.WriteString(lipgloss.NewStyle().
-				Bold(true).
-				Foreground(h.theme.P.HighlightText).
-				Background(h.theme.P.Highlight).
-				Padding(0, 1).
-				Render(v.label))
-		} else {
-			navBuilder.WriteString(lipgloss.NewStyle().
-				Foreground(h.theme.P.Muted).
-				Padding(0, 1).
-				Render(v.label))
-		}
+		return b.String()
 	}
-	nav := navBuilder.String()
 
 	scopeText := "● Unified (All Accounts)"
 	if !scope.IsUnified {
-		if accountName != "" {
-			scopeText = fmt.Sprintf("◆ Account: %s", accountName)
-		} else {
-			scopeText = fmt.Sprintf("◆ Account: %s", scope.AccountID)
+		name := accountName
+		if name == "" {
+			name = string(scope.AccountID)
 		}
+		maxName := 22
+		if w < 100 {
+			maxName = 14
+		}
+		if w < 90 {
+			maxName = 10
+		}
+		name = styles.Truncate(name, maxName)
+		scopeText = fmt.Sprintf("◆ Account: %s", name)
 	}
 	scopeBadge := h.theme.ScopeBadge.Render(scopeText)
 
-	left := lipgloss.JoinHorizontal(lipgloss.Center, logo, "  ", nav)
+	left := logo + "  " + renderNav(false)
 	leftW := ansi.StringWidth(left)
 	badgeW := ansi.StringWidth(scopeBadge)
 
-	gapWidth := h.width - leftW - badgeW - 2
-	if gapWidth < 1 {
-		gapWidth = 1
+	if leftW+badgeW+1 > w {
+		left = logo + "  " + renderNav(true)
+		leftW = ansi.StringWidth(left)
+		badgeW = ansi.StringWidth(scopeBadge)
 	}
 
+	if leftW+badgeW+1 > w {
+		avail := w - leftW - 1
+		if avail < 1 {
+			avail = 0
+		}
+		if avail > 0 {
+			scopeBadge = ansi.Truncate(scopeBadge, avail, "")
+		} else {
+			scopeBadge = ""
+		}
+		badgeW = ansi.StringWidth(scopeBadge)
+	}
+
+	var b strings.Builder
+	b.Grow(w + 64)
 	b.WriteString(left)
-	for range gapWidth {
+	gap := w - leftW - badgeW
+	if gap < 0 {
+		gap = 0
+	}
+	if gap == 0 && badgeW > 0 {
+		// No room for a separator; keep a single space so the badge never
+		// visually merges into the navigation labels.
+		gap = 1
+	}
+	for range gap {
 		b.WriteByte(' ')
 	}
 	b.WriteString(scopeBadge)
 
-	return b.String()
+	return ansi.Truncate(b.String(), w, "")
 }

@@ -72,18 +72,16 @@ func OpenURL(rawURL string) error {
 		return err
 	}
 
-	safeURL := u.String()
+	return browserCommand(runtime.GOOS, u.String()).Start()
+}
 
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
+func browserCommand(goos, safeURL string) *exec.Cmd {
+	switch goos {
 	case "darwin":
-		cmd = exec.Command("open", safeURL)
+		return exec.Command("open", safeURL)
 	case "windows":
-
-		cmd = exec.Command("cmd.exe", "/c", "start", "", safeURL)
+		return exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", safeURL)
 	default:
-		cmd = exec.Command("xdg-open", safeURL)
+		return exec.Command("xdg-open", safeURL)
 	}
-
-	return cmd.Start()
 }

@@ -23,6 +23,10 @@ type TableRowData struct {
 	Cells []string
 }
 
+// tablePruneOrder drops secondary metadata before provider, ID and title when
+// the pane is too narrow for every column.
+var tablePruneOrder = []string{"REV", "CI", "COMMENTS", "REASON", "AUTHOR", "TIME", "STATE", "REPO"}
+
 type ItemTable struct {
 	theme        *styles.Theme
 	width        int
@@ -64,6 +68,45 @@ func (t *ItemTable) Cursor() int {
 	return t.cursor
 }
 
+// Clamp bounds the cursor and scroll offset against the current item count and
+// visible height. Rendering never mutates selection; callers invoke Clamp after
+// data loads and after layout changes.
+func (t *ItemTable) Clamp(total int) {
+	if total <= 0 {
+		t.cursor = 0
+		t.scrollOffset = 0
+		return
+	}
+	if t.cursor < 0 {
+		t.cursor = 0
+	}
+	if t.cursor >= total {
+		t.cursor = total - 1
+	}
+
+	visibleRows := t.height - 2
+	if visibleRows < 1 {
+		visibleRows = 1
+	}
+
+	maxOffset := total - visibleRows
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if t.scrollOffset > maxOffset {
+		t.scrollOffset = maxOffset
+	}
+	if t.scrollOffset < 0 {
+		t.scrollOffset = 0
+	}
+	if t.cursor < t.scrollOffset {
+		t.scrollOffset = t.cursor
+	}
+	if t.cursor >= t.scrollOffset+visibleRows {
+		t.scrollOffset = t.cursor - visibleRows + 1
+	}
+}
+
 func (t *ItemTable) MoveDown(total int) {
 	if total == 0 {
 		t.cursor = 0
@@ -73,7 +116,10 @@ func (t *ItemTable) MoveDown(total int) {
 	if t.cursor < total-1 {
 		t.cursor++
 		visibleRows := t.height - 2
-		if visibleRows > 0 && t.cursor >= t.scrollOffset+visibleRows {
+		if visibleRows < 1 {
+			visibleRows = 1
+		}
+		if t.cursor >= t.scrollOffset+visibleRows {
 			t.scrollOffset = t.cursor - visibleRows + 1
 		}
 	}
@@ -100,7 +146,10 @@ func (t *ItemTable) MoveBottom(total int) {
 	}
 	t.cursor = total - 1
 	visibleRows := t.height - 2
-	if visibleRows > 0 && t.cursor >= visibleRows {
+	if visibleRows < 1 {
+		visibleRows = 1
+	}
+	if t.cursor >= visibleRows {
 		t.scrollOffset = t.cursor - visibleRows + 1
 	}
 }
@@ -115,7 +164,7 @@ func (t *ItemTable) RenderChanges(changes []change.ChangeRequest) string {
 	if w < 55 {
 		cols = []Column{
 			{Title: "PROV", Width: 4},
-			{Title: "REPO", Width: 12},
+			{Title: "REPO", Width: 14},
 			{Title: "ID", Width: 6},
 			{Title: "TITLE", Width: 0},
 			{Title: "STATE", Width: 5},
@@ -229,7 +278,7 @@ func (t *ItemTable) RenderIssues(issues []issue.Issue) string {
 	if w < 55 {
 		cols = []Column{
 			{Title: "PROV", Width: 4},
-			{Title: "REPO", Width: 12},
+			{Title: "REPO", Width: 14},
 			{Title: "ID", Width: 6},
 			{Title: "TITLE", Width: 0},
 			{Title: "STATE", Width: 5},
@@ -380,10 +429,6 @@ func (t *ItemTable) renderTable(cols []Column, rows []TableRowData, flexColIdx i
 		return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, t.theme.Subtitle.Render(msg))
 	}
 
-	if t.cursor >= len(rows) {
-		t.cursor = len(rows) - 1
-	}
-
 	usableW := w - 2
 	if usableW < 10 {
 		usableW = w
@@ -402,16 +447,41 @@ func (t *ItemTable) renderTable(cols []Column, rows []TableRowData, flexColIdx i
 
 	activeCols := make([]Column, len(cols))
 	copy(activeCols, cols)
+	// Keep the original row-cell index alongside each surviving column so
+	// pruning an interior column cannot shift values under the wrong header.
+	origIdx := make([]int, len(cols))
+	for i := range origIdx {
+		origIdx[i] = i
+	}
 	activeFlex := flexColIdx
 
-	for calcFixed(activeCols, activeFlex)+8 > usableW && len(activeCols) > 2 {
-		lastIdx := len(activeCols) - 1
-		if lastIdx == activeFlex {
-			lastIdx--
+	// Secondary metadata is dropped in tablePruneOrder; provider, ID and title
+	// are never pruned.
+	prune := func(title string) bool {
+		for i, c := range activeCols {
+			if i == activeFlex || c.Title != title {
+				continue
+			}
+			activeCols = append(activeCols[:i], activeCols[i+1:]...)
+			origIdx = append(origIdx[:i], origIdx[i+1:]...)
+			if i < activeFlex {
+				activeFlex--
+			}
+			return true
 		}
-		activeCols = append(activeCols[:lastIdx], activeCols[lastIdx+1:]...)
-		if lastIdx < activeFlex {
-			activeFlex--
+		return false
+	}
+
+	for calcFixed(activeCols, activeFlex)+8 > usableW {
+		pruned := false
+		for _, title := range tablePruneOrder {
+			if prune(title) {
+				pruned = true
+				break
+			}
+		}
+		if !pruned {
+			break
 		}
 	}
 
@@ -443,17 +513,29 @@ func (t *ItemTable) renderTable(cols []Column, rows []TableRowData, flexColIdx i
 	result.WriteByte('\n')
 	result.WriteString(sepLine)
 
-	visibleRows := h - 3
-	if visibleRows <= 0 {
-		visibleRows = 10
+	visibleRows := h - 2
+	if visibleRows < 1 {
+		visibleRows = 1
 	}
 
-	endIdx := t.scrollOffset + visibleRows
+	offset := t.scrollOffset
+	maxOffset := len(rows) - visibleRows
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if offset > maxOffset {
+		offset = maxOffset
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	endIdx := offset + visibleRows
 	if endIdx > len(rows) {
 		endIdx = len(rows)
 	}
 
-	for i := t.scrollOffset; i < endIdx; i++ {
+	for i := offset; i < endIdx; i++ {
 		result.WriteByte('\n')
 		row := rows[i]
 
@@ -476,8 +558,8 @@ func (t *ItemTable) renderTable(cols []Column, rows []TableRowData, flexColIdx i
 				rowB.WriteByte(' ')
 			}
 			cellVal := ""
-			if cIdx < len(row.Cells) {
-				cellVal = row.Cells[cIdx]
+			if src := origIdx[cIdx]; src < len(row.Cells) {
+				cellVal = row.Cells[src]
 			}
 			truncVal := styles.Truncate(cellVal, col.Width)
 			rowB.WriteString(styles.PadRight(truncVal, col.Width))
@@ -488,7 +570,6 @@ func (t *ItemTable) renderTable(cols []Column, rows []TableRowData, flexColIdx i
 			if t.focused {
 				result.WriteString(t.theme.TableSelected.Width(usableW).Render(rowContent))
 			} else {
-
 				result.WriteString(lipgloss.NewStyle().Background(t.theme.P.BgCard).Width(usableW).Render(rowContent))
 			}
 		} else {

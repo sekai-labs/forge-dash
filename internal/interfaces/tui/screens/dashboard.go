@@ -8,10 +8,13 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/forgedash/forgedash/internal/application/ports"
 	"github.com/forgedash/forgedash/internal/application/usecase"
 	"github.com/forgedash/forgedash/internal/domain/account"
 	"github.com/forgedash/forgedash/internal/domain/change"
@@ -89,14 +92,16 @@ type DashboardModel struct {
 	curChecks   []shared.CheckRun
 	curComments []shared.Comment
 
-	activeModal       ModalState
-	searchInput       textinput.Model
-	commentInput      textinput.Model
-	accountModalIndex int
-	confirmAction     func() tea.Cmd
-	confirmPrompt     string
-	statusFlash       string
-	statusFlashExpiry time.Time
+	activeModal         ModalState
+	searchInput         textinput.Model
+	commentInput        textinput.Model
+	accountModalIndex   int
+	accountModalClients []ports.ForgeClient
+	helpPage            int
+	confirmAction       func() tea.Cmd
+	confirmPrompt       string
+	statusFlash         string
+	statusFlashExpiry   time.Time
 
 	header      *components.Header
 	sectionTabs *components.SectionTabs
@@ -145,7 +150,7 @@ func NewDashboardModel(
 	ci.Placeholder = "Write a comment..."
 	ci.CharLimit = 500
 
-	return &DashboardModel{
+	m := &DashboardModel{
 		cfg:           cfg,
 		dashboardUC:   dashboardUC,
 		changeUC:      changeUC,
@@ -160,6 +165,7 @@ func NewDashboardModel(
 		previewPos:    cfg.Preview.Position,
 		focusedPane:   PaneTable,
 		searchInput:   ti,
+		commentInput:  ci,
 		header:        components.NewHeader(theme),
 		sectionTabs:   components.NewSectionTabs(theme),
 		itemTable:     components.NewItemTable(theme),
@@ -167,6 +173,11 @@ func NewDashboardModel(
 		statusBar:     components.NewStatusBar(theme),
 		errors:        make(map[account.AccountID]error),
 	}
+	m.previewPane.SetIssueMode(activeView == usecase.ViewModeIssues)
+	if activeView == usecase.ViewModeNotifications {
+		m.focusedPane = PaneTable
+	}
+	return m
 }
 
 func (m *DashboardModel) Init() tea.Cmd {
@@ -269,6 +280,7 @@ func (m *DashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.notifications = msg.result.Notifications
 			m.errors = msg.result.Errors
 		}
+		m.itemTable.Clamp(m.activeTotalCount())
 		cmds = append(cmds, m.fetchItemDetailCmd())
 
 	case previewDetailLoadedMsg:
@@ -287,10 +299,12 @@ func (m *DashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case key.Matches(msg, m.keys.Help):
 			m.activeModal = ModalHelp
+			m.helpPage = 0
 			return m, nil
 		case key.Matches(msg, m.keys.AccountModal):
 			m.activeModal = ModalAccountSwitch
 			m.accountModalIndex = 0
+			m.accountModalClients = m.sortedClients()
 			return m, nil
 		case key.Matches(msg, m.keys.Search):
 			m.activeModal = ModalSearch
@@ -334,7 +348,7 @@ func (m *DashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		if m.previewOpen {
+		if m.effectivePreview() {
 			switch {
 			case key.Matches(msg, m.keys.FocusNext), key.Matches(msg, m.keys.ToggleFocus):
 				if m.focusedPane == PaneTable {
@@ -355,7 +369,7 @@ func (m *DashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		if m.previewOpen && m.focusedPane == PanePreview {
+		if m.effectivePreview() && m.focusedPane == PanePreview {
 			switch {
 			case key.Matches(msg, m.keys.NextPreviewTab):
 				m.previewPane.NextTab()
@@ -419,22 +433,22 @@ func (m *DashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.fetchDataCmd()
 			}
 		case key.Matches(msg, m.keys.NextPreviewTab):
-			if m.previewOpen {
+			if m.effectivePreview() {
 				m.previewPane.NextTab()
 				return m, nil
 			}
 		case key.Matches(msg, m.keys.PrevPreviewTab):
-			if m.previewOpen {
+			if m.effectivePreview() {
 				m.previewPane.PrevTab()
 				return m, nil
 			}
 		case key.Matches(msg, m.keys.PreviewPageDown):
-			if m.previewOpen {
+			if m.effectivePreview() {
 				m.previewPane.ScrollDown()
 				return m, nil
 			}
 		case key.Matches(msg, m.keys.PreviewPageUp):
-			if m.previewOpen {
+			if m.effectivePreview() {
 				m.previewPane.ScrollUp()
 				return m, nil
 			}
@@ -460,20 +474,20 @@ func (m *DashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, func() tea.Msg { return statusFlashMsg("Copied URL: " + url) }
 			}
 		case key.Matches(msg, m.keys.DiffView):
-			m.previewOpen = true
-			m.focusedPane = PanePreview
-			m.previewPane.SetTab(components.PreviewTabFiles)
-			m.recalculateLayout()
-			return m, nil
+			if m.activeView == usecase.ViewModePRs {
+				m.previewOpen = true
+				m.focusedPane = PanePreview
+				m.previewPane.SetTab(components.PreviewTabFiles)
+				m.recalculateLayout()
+				return m, nil
+			}
 		case key.Matches(msg, m.keys.Comment):
 			m.activeModal = ModalComment
 			m.commentInput.Reset()
 			m.commentInput.Focus()
 			return m, nil
 		case key.Matches(msg, m.keys.Approve):
-			if m.activeView == usecase.ViewModePRs && len(m.changes) > 0 {
-				idx := m.itemTable.Cursor()
-				cr := m.changes[idx]
+			if cr, ok := m.activeChange(); ok {
 				m.activeModal = ModalConfirm
 				m.confirmPrompt = fmt.Sprintf("Approve PR %s: %s?", cr.DisplayID(), cr.Title)
 				m.confirmAction = func() tea.Cmd {
@@ -488,9 +502,7 @@ func (m *DashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		case key.Matches(msg, m.keys.Merge):
-			if m.activeView == usecase.ViewModePRs && len(m.changes) > 0 {
-				idx := m.itemTable.Cursor()
-				cr := m.changes[idx]
+			if cr, ok := m.activeChange(); ok {
 				m.activeModal = ModalConfirm
 				m.confirmPrompt = fmt.Sprintf("Merge PR %s: %s?", cr.DisplayID(), cr.Title)
 				m.confirmAction = func() tea.Cmd {
@@ -505,9 +517,7 @@ func (m *DashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		case key.Matches(msg, m.keys.Close):
-			if m.activeView == usecase.ViewModePRs && len(m.changes) > 0 {
-				idx := m.itemTable.Cursor()
-				cr := m.changes[idx]
+			if cr, ok := m.activeChange(); ok {
 				m.activeModal = ModalConfirm
 				m.confirmPrompt = fmt.Sprintf("Close PR %s: %s?", cr.DisplayID(), cr.Title)
 				m.confirmAction = func() tea.Cmd {
@@ -522,9 +532,7 @@ func (m *DashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		case key.Matches(msg, m.keys.Reopen):
-			if m.activeView == usecase.ViewModePRs && len(m.changes) > 0 {
-				idx := m.itemTable.Cursor()
-				cr := m.changes[idx]
+			if cr, ok := m.activeChange(); ok {
 				return m, func() tea.Msg {
 					err := m.changeUC.Reopen(context.Background(), cr)
 					if err != nil {
@@ -534,9 +542,7 @@ func (m *DashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		case key.Matches(msg, m.keys.Checkout):
-			if m.activeView == usecase.ViewModePRs && len(m.changes) > 0 {
-				idx := m.itemTable.Cursor()
-				cr := m.changes[idx]
+			if cr, ok := m.activeChange(); ok {
 				return m, func() tea.Msg {
 					err := m.changeUC.Checkout(context.Background(), cr)
 					if err != nil {
@@ -553,8 +559,17 @@ func (m *DashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *DashboardModel) handleModalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.activeModal {
 	case ModalHelp:
-		if msg.String() == "esc" || msg.String() == "?" || msg.String() == "q" {
+		switch msg.String() {
+		case "esc", "?", "q":
 			m.activeModal = ModalNone
+		case "right":
+			if m.helpPage < 2 {
+				m.helpPage++
+			}
+		case "left":
+			if m.helpPage > 0 {
+				m.helpPage--
+			}
 		}
 		return m, nil
 
@@ -615,12 +630,13 @@ func (m *DashboardModel) handleModalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case ModalAccountSwitch:
-		clients := m.dashboardUC.ListClients()
+		clients := m.accountModalClients
 		totalOptions := len(clients) + 1
 
 		switch msg.String() {
 		case "esc", "q":
 			m.activeModal = ModalNone
+			m.accountModalClients = nil
 			return m, nil
 		case "j", "down":
 			if m.accountModalIndex < totalOptions-1 {
@@ -636,13 +652,14 @@ func (m *DashboardModel) handleModalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.activeModal = ModalNone
 			if m.accountModalIndex == 0 {
 				m.activeScope = usecase.AccountScope{IsUnified: true}
-			} else {
-				client := clients[m.accountModalIndex-1]
+			} else if idx := m.accountModalIndex - 1; idx >= 0 && idx < len(clients) {
+				client := clients[idx]
 				m.activeScope = usecase.AccountScope{
 					IsUnified: false,
 					AccountID: client.Account().ID,
 				}
 			}
+			m.accountModalClients = nil
 			m.loading = true
 			m.itemTable.MoveTop()
 			return m, m.fetchDataCmd()
@@ -654,15 +671,16 @@ func (m *DashboardModel) handleModalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m *DashboardModel) submitCommentCmd(text string) tea.Cmd {
 	return func() tea.Msg {
-		if m.activeView == usecase.ViewModePRs && len(m.changes) > 0 {
-			cr := m.changes[m.itemTable.Cursor()]
+		idx := m.itemTable.Cursor()
+		if m.activeView == usecase.ViewModePRs && idx >= 0 && idx < len(m.changes) {
+			cr := m.changes[idx]
 			_, err := m.changeUC.AddComment(context.Background(), cr, text)
 			if err != nil {
 				return statusFlashMsg(fmt.Sprintf("Failed to comment: %v", err))
 			}
 			return statusFlashMsg("Comment posted!")
-		} else if m.activeView == usecase.ViewModeIssues && len(m.issues) > 0 {
-			iss := m.issues[m.itemTable.Cursor()]
+		} else if m.activeView == usecase.ViewModeIssues && idx >= 0 && idx < len(m.issues) {
+			iss := m.issues[idx]
 			_, err := m.issueUC.AddComment(context.Background(), iss, text)
 			if err != nil {
 				return statusFlashMsg(fmt.Sprintf("Failed to comment: %v", err))
@@ -706,6 +724,11 @@ func (m *DashboardModel) cycleView(forward bool) {
 	m.activeSection = 0
 	m.itemTable.MoveTop()
 	m.setupSectionsForActiveView()
+	m.previewPane.SetIssueMode(m.activeView == usecase.ViewModeIssues)
+	if m.activeView == usecase.ViewModeNotifications {
+		m.focusedPane = PaneTable
+	}
+	m.recalculateLayout()
 }
 
 func (m *DashboardModel) setupSectionsForActiveView() {
@@ -734,8 +757,35 @@ func (m *DashboardModel) setupSectionsForActiveView() {
 	m.sections = sections
 }
 
+func (m *DashboardModel) effectivePreview() bool {
+	return m.previewOpen && m.activeView != usecase.ViewModeNotifications
+}
+
+func (m *DashboardModel) sortedClients() []ports.ForgeClient {
+	clients := m.dashboardUC.ListClients()
+	sort.Slice(clients, func(i, j int) bool {
+		a, b := clients[i].Account(), clients[j].Account()
+		if a.Name != b.Name {
+			return a.Name < b.Name
+		}
+		return a.ID < b.ID
+	})
+	return clients
+}
+
+func (m *DashboardModel) activeChange() (change.ChangeRequest, bool) {
+	if m.activeView != usecase.ViewModePRs {
+		return change.ChangeRequest{}, false
+	}
+	idx := m.itemTable.Cursor()
+	if idx < 0 || idx >= len(m.changes) {
+		return change.ChangeRequest{}, false
+	}
+	return m.changes[idx], true
+}
+
 func (m *DashboardModel) syncFocus() {
-	if !m.previewOpen {
+	if !m.effectivePreview() {
 		m.focusedPane = PaneTable
 		m.itemTable.SetFocused(true)
 		m.previewPane.SetFocused(false)
@@ -770,72 +820,64 @@ func (m *DashboardModel) recalculateLayout() {
 		m.statusBar.SetWidth(m.width)
 	}
 
-	headerH := 1
-	tabsH := 1
-	statusBarH := 1
-	bodyHeight := m.height - headerH - tabsH - statusBarH
-	if bodyHeight < 4 {
-		bodyHeight = 4
+	bodyHeight := m.height - 3
+	if bodyHeight < 1 {
+		bodyHeight = 1
 	}
 
-	contentHeight := bodyHeight - 2
-	if contentHeight < 1 {
-		contentHeight = 1
+	w := m.width
+	if w < 1 {
+		w = 1
 	}
 
-	tableFullWidth := m.width - 2
-	if tableFullWidth < 20 {
-		tableFullWidth = 20
-	}
+	defer m.itemTable.Clamp(m.activeTotalCount())
 
-	if !m.previewOpen {
-		m.itemTable.SetSize(tableFullWidth, contentHeight)
+	if !m.effectivePreview() {
+		m.itemTable.SetSize(w, bodyHeight)
+		m.previewPane.SetSize(w, bodyHeight)
 		return
 	}
 
-	isWide := m.width >= 120
-	sideBySide := m.previewPos == "right"
-	if !isWide && m.previewPos != "right" {
-		sideBySide = false
+	// Compact terminals show a single pane; both panes keep full-body sizes so
+	// switching focus reveals the other without a relayout surprise.
+	if w < 120 || m.height < 28 {
+		m.itemTable.SetSize(w, bodyHeight)
+		m.previewPane.SetSize(w, bodyHeight)
+		return
 	}
 
-	if sideBySide {
-
-		availWidth := m.width - 5
-		if availWidth < 40 {
-			availWidth = 40
+	if m.previewPos == "right" {
+		tableWidth := (w - 1) * 55 / 100
+		if tableWidth < 1 {
+			tableWidth = 1
 		}
-
-		tableWidth := (availWidth * 55) / 100
-		if tableWidth < 30 {
-			tableWidth = 30
+		previewWidth := w - 1 - tableWidth
+		if previewWidth < 1 {
+			previewWidth = 1
+			tableWidth = w - 2
+			if tableWidth < 1 {
+				tableWidth = 1
+			}
 		}
-		previewWidth := availWidth - tableWidth
-		if previewWidth < 20 {
-			previewWidth = 20
-		}
-
-		m.itemTable.SetSize(tableWidth, contentHeight)
-		m.previewPane.SetSize(previewWidth, contentHeight)
-	} else {
-
-		availHeight := bodyHeight - 4
-		if availHeight < 4 {
-			availHeight = 4
-		}
-
-		halfHeight := (availHeight * 55) / 100
-		if halfHeight < 2 {
-			halfHeight = 2
-		}
-		prevHeight := availHeight - halfHeight
-		if prevHeight < 2 {
-			prevHeight = 2
-		}
-
-		m.itemTable.SetSize(tableFullWidth, halfHeight)
-		m.previewPane.SetSize(tableFullWidth, prevHeight)
+		m.itemTable.SetSize(tableWidth, bodyHeight)
+		m.previewPane.SetSize(previewWidth, bodyHeight)
+		return
 	}
+
+	tableHeight := (bodyHeight - 1) * 55 / 100
+	if tableHeight < 1 {
+		tableHeight = 1
+	}
+	previewHeight := bodyHeight - 1 - tableHeight
+	if previewHeight < 1 {
+		previewHeight = 1
+		tableHeight = bodyHeight - 2
+		if tableHeight < 1 {
+			tableHeight = 1
+		}
+	}
+	m.itemTable.SetSize(w, tableHeight)
+	m.previewPane.SetSize(w, previewHeight)
 }
 
 func (m *DashboardModel) activeTotalCount() int {
@@ -894,18 +936,7 @@ func (m *DashboardModel) activeItemNumber() string {
 
 func (m *DashboardModel) View() string {
 	if m.width < 80 || m.height < 24 {
-		var warn strings.Builder
-		warn.Grow(128)
-		warn.WriteString(m.theme.Title.Render("⚡ FORGEDASH"))
-		warn.WriteString("\n\n")
-		warn.WriteString(m.theme.Subtitle.Render(fmt.Sprintf("Terminal window is too small (%dx%d).\nMinimum required: 80x24. Please resize.", m.width, m.height)))
-		return lipgloss.Place(
-			m.width,
-			m.height,
-			lipgloss.Center,
-			lipgloss.Center,
-			warn.String(),
-		)
+		return m.renderTooSmall()
 	}
 
 	accountName := "None"
@@ -919,121 +950,243 @@ func (m *DashboardModel) View() string {
 	counts := map[int]int{
 		m.activeSection: m.activeTotalCount(),
 	}
-	sectionTabsView := m.sectionTabs.Render(m.sections, m.activeSection, counts)
+	sectionTabsView := m.sectionTabs.Render(m.sections, m.activeSection, counts, m.width)
 
-	var tableContent string
-	switch m.activeView {
-	case usecase.ViewModePRs:
-		tableContent = m.itemTable.RenderChanges(m.changes)
-	case usecase.ViewModeIssues:
-		tableContent = m.itemTable.RenderIssues(m.issues)
-	case usecase.ViewModeNotifications:
-		tableContent = m.itemTable.RenderNotifications(m.notifications)
+	effectivePreview := m.effectivePreview()
+	focusedPreview := effectivePreview && m.focusedPane == PanePreview
+	compact := m.width < 120 || m.height < 28
+
+	dividerStyle := lipgloss.NewStyle().Foreground(m.theme.P.BorderInactive)
+
+	var tablePane []string
+	if !effectivePreview || !compact || !focusedPreview {
+		tablePane = fitBlock(m.renderActiveTable(), m.itemTable.Width(), m.itemTable.Height())
 	}
 
-	tableBoxStyle := m.theme.Box.Width(m.itemTable.Width()).Height(m.itemTable.Height())
-	if !m.previewOpen || m.focusedPane == PaneTable {
-		tableBoxStyle = m.theme.BoxActive.Width(m.itemTable.Width()).Height(m.itemTable.Height())
-	}
-	tableBox := tableBoxStyle.Render(tableContent)
-
-	var mainContent string
-	if !m.previewOpen {
-		mainContent = tableBox
-	} else {
-		var previewContent string
-		idx := m.itemTable.Cursor()
-		if m.activeView == usecase.ViewModePRs && idx >= 0 && idx < len(m.changes) {
-			cr := m.changes[idx]
-			previewContent = m.previewPane.RenderChange(&cr, m.curDiffs, m.curCommits, m.curChecks, m.curComments)
-		} else if m.activeView == usecase.ViewModeIssues && idx >= 0 && idx < len(m.issues) {
-			iss := m.issues[idx]
-			previewContent = m.previewPane.RenderIssue(&iss, m.curComments)
+	var bodyLines []string
+	switch {
+	case !effectivePreview:
+		bodyLines = tablePane
+	case compact:
+		if focusedPreview {
+			bodyLines = fitBlock(m.renderActivePreview(), m.previewPane.Width(), m.previewPane.Height())
 		} else {
-			previewContent = m.previewPane.RenderChange(nil, nil, nil, nil, nil)
+			bodyLines = tablePane
 		}
-
-		previewBoxStyle := m.theme.PreviewBox.Width(m.previewPane.Width()).Height(m.previewPane.Height())
-		if m.focusedPane == PanePreview {
-			previewBoxStyle = m.theme.BoxActive.Width(m.previewPane.Width()).Height(m.previewPane.Height())
+	case m.previewPos == "right":
+		previewLines := fitBlock(m.renderActivePreview(), m.previewPane.Width(), m.previewPane.Height())
+		divider := dividerStyle.Render("│")
+		bodyLines = make([]string, 0, len(tablePane))
+		for i := range min(len(tablePane), len(previewLines)) {
+			bodyLines = append(bodyLines, tablePane[i]+divider+previewLines[i])
 		}
-		previewBox := previewBoxStyle.Render(previewContent)
-
-		sideBySide := m.previewPos == "right"
-		if m.width < 120 && m.previewPos != "right" {
-			sideBySide = false
-		}
-
-		if sideBySide {
-			mainContent = lipgloss.JoinHorizontal(lipgloss.Top, tableBox, " ", previewBox)
-		} else {
-			mainContent = lipgloss.JoinVertical(lipgloss.Left, tableBox, previewBox)
-		}
+	default:
+		previewLines := fitBlock(m.renderActivePreview(), m.previewPane.Width(), m.previewPane.Height())
+		bodyLines = append(bodyLines, tablePane...)
+		bodyLines = append(bodyLines, dividerStyle.Render(strings.Repeat("─", m.width)))
+		bodyLines = append(bodyLines, previewLines...)
 	}
 
-	statusBarView := m.statusBar.Render(m.itemTable.Cursor(), m.activeTotalCount(), m.errors, m.loading)
+	statusBarView := m.statusBar.Render(
+		m.itemTable.Cursor(),
+		m.activeTotalCount(),
+		m.errors,
+		m.loading,
+		focusedPreview,
+		effectivePreview,
+	)
 	if m.statusFlash != "" && time.Now().Before(m.statusFlashExpiry) {
-		var flashB strings.Builder
-		flashB.Grow(len(m.statusFlash) + 8)
-		flashB.WriteString("⚡ ")
-		flashB.WriteString(m.statusFlash)
+		maxFlash := m.width - 2
+		if maxFlash < 1 {
+			maxFlash = 1
+		}
+		flashText := styles.Truncate("⚡ "+m.statusFlash, maxFlash)
 		statusBarView = m.theme.StatusBar.Width(m.width).Render(
-			lipgloss.NewStyle().Bold(true).Foreground(m.theme.P.Secondary).Render(flashB.String()),
+			lipgloss.NewStyle().Bold(true).Foreground(m.theme.P.Secondary).Render(flashText),
 		)
 	}
 
-	var fullViewB strings.Builder
-	fullViewB.Grow((m.height + 2) * (m.width + 4))
-	fullViewB.WriteString(headerView)
-	fullViewB.WriteByte('\n')
-	fullViewB.WriteString(sectionTabsView)
-	fullViewB.WriteByte('\n')
-	fullViewB.WriteString(mainContent)
-	fullViewB.WriteByte('\n')
-	fullViewB.WriteString(statusBarView)
+	lines := make([]string, 0, m.height)
+	lines = append(lines, padDisplayLine(headerView, m.width))
+	lines = append(lines, padDisplayLine(sectionTabsView, m.width))
+	for _, line := range bodyLines {
+		lines = append(lines, padDisplayLine(line, m.width))
+	}
+	lines = append(lines, padDisplayLine(statusBarView, m.width))
 
-	fullView := fullViewB.String()
+	for len(lines) > m.height {
+		lines = lines[:m.height]
+	}
+	blank := strings.Repeat(" ", m.width)
+	for len(lines) < m.height {
+		lines = append(lines, blank)
+	}
+
+	fullView := strings.Join(lines, "\n")
 	if m.activeModal != ModalNone {
-		var modalBox string
-		switch m.activeModal {
-		case ModalHelp:
-			modalBox = modals.RenderHelpModal(m.theme, m.width, m.height)
-		case ModalSearch:
-			searchContent := fmt.Sprintf("%s\n\n%s\n\n%s",
-				m.theme.Title.Render("Filter Current Section"),
-				m.searchInput.View(),
-				m.theme.Subtitle.Render("Enter to apply • Esc to cancel"),
-			)
-			modalBox = m.theme.ModalBox.Width(54).Render(searchContent)
-		case ModalComment:
-			commContent := fmt.Sprintf("%s\n\n%s\n\n%s",
-				m.theme.Title.Render("Add Comment"),
-				m.commentInput.View(),
-				m.theme.Subtitle.Render("Enter to submit • Esc to cancel"),
-			)
-			modalBox = m.theme.ModalBox.Width(64).Render(commContent)
-		case ModalConfirm:
-			modalBox = modals.RenderConfirmModal(m.theme, "Confirmation Required", m.confirmPrompt)
-		case ModalAccountSwitch:
-			var accounts []account.Account
-			for _, c := range m.dashboardUC.ListClients() {
-				accounts = append(accounts, c.Account())
-			}
-			modalBox = modals.RenderAccountModal(m.theme, accounts, m.activeScope.AccountID, m.activeScope.IsUnified, m.accountModalIndex)
-		}
-
-		return placeOverlay(m.width, m.height, modalBox, fullView)
+		return placeOverlay(m.width, m.height, m.renderModal(), fullView)
 	}
 
 	return fullView
 }
 
+func (m *DashboardModel) renderActiveTable() string {
+	switch m.activeView {
+	case usecase.ViewModePRs:
+		return m.itemTable.RenderChanges(m.changes)
+	case usecase.ViewModeIssues:
+		return m.itemTable.RenderIssues(m.issues)
+	case usecase.ViewModeNotifications:
+		return m.itemTable.RenderNotifications(m.notifications)
+	}
+	return ""
+}
+
+func (m *DashboardModel) renderActivePreview() string {
+	idx := m.itemTable.Cursor()
+	if m.activeView == usecase.ViewModePRs && idx >= 0 && idx < len(m.changes) {
+		cr := m.changes[idx]
+		return m.previewPane.RenderChange(&cr, m.curDiffs, m.curCommits, m.curChecks, m.curComments)
+	}
+	if m.activeView == usecase.ViewModeIssues && idx >= 0 && idx < len(m.issues) {
+		iss := m.issues[idx]
+		return m.previewPane.RenderIssue(&iss, m.curComments)
+	}
+	return m.previewPane.RenderChange(nil, nil, nil, nil, nil)
+}
+
+func (m *DashboardModel) renderModal() string {
+	switch m.activeModal {
+	case ModalHelp:
+		return modals.RenderHelpModal(m.theme, m.width, m.height, m.helpPage)
+	case ModalSearch:
+		modalW := 54
+		maxModalW := m.width - 6
+		if modalW > maxModalW {
+			modalW = maxModalW
+		}
+		if modalW < 10 {
+			modalW = 10
+		}
+		inner := modalW - 4
+		if inner < 1 {
+			inner = 1
+		}
+		searchInput := m.searchInput
+		searchInput.Width = inner
+		searchContent := fmt.Sprintf("%s\n\n%s\n\n%s",
+			m.theme.Title.Render("Filter Current Section"),
+			searchInput.View(),
+			m.theme.Subtitle.Render("Enter to apply • Esc to cancel"),
+		)
+		return m.theme.ModalBox.Width(modalW).Render(searchContent)
+	case ModalComment:
+		modalW := 64
+		maxModalW := m.width - 6
+		if modalW > maxModalW {
+			modalW = maxModalW
+		}
+		if modalW < 10 {
+			modalW = 10
+		}
+		inner := modalW - 4
+		if inner < 1 {
+			inner = 1
+		}
+		commentInput := m.commentInput
+		commentInput.Width = inner
+		commContent := fmt.Sprintf("%s\n\n%s\n\n%s",
+			m.theme.Title.Render("Add Comment"),
+			commentInput.View(),
+			m.theme.Subtitle.Render("Enter to submit • Esc to cancel"),
+		)
+		return m.theme.ModalBox.Width(modalW).Render(commContent)
+	case ModalConfirm:
+		return modals.RenderConfirmModal(m.theme, "Confirmation Required", m.confirmPrompt, m.width, m.height)
+	case ModalAccountSwitch:
+		accounts := make([]account.Account, 0, len(m.accountModalClients))
+		for _, c := range m.accountModalClients {
+			accounts = append(accounts, c.Account())
+		}
+		return modals.RenderAccountModal(m.theme, accounts, m.activeScope.AccountID, m.activeScope.IsUnified, m.accountModalIndex, m.width, m.height)
+	}
+	return ""
+}
+
+func (m *DashboardModel) renderTooSmall() string {
+	if m.width <= 0 || m.height <= 0 {
+		return ""
+	}
+
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(m.theme.P.Primary)
+	wrapped := ansi.Wordwrap(
+		fmt.Sprintf("Terminal window is too small (%dx%d). Minimum required: 80x24. Please resize.", m.width, m.height),
+		m.width,
+		"",
+	)
+
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("FORGEDASH"))
+	b.WriteString("\n\n")
+	b.WriteString(wrapped)
+
+	lines := strings.Split(b.String(), "\n")
+	for i := range lines {
+		lines[i] = ansi.Truncate(lines[i], m.width, "")
+	}
+
+	return placeOverlay(m.width, m.height, strings.Join(lines, "\n"), "")
+}
+
+func padDisplayLine(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	w := ansi.StringWidth(s)
+	if w > width {
+		s = ansi.Truncate(s, width, "")
+		w = ansi.StringWidth(s)
+	}
+	if w < width {
+		s += strings.Repeat(" ", width-w)
+	}
+	return s
+}
+
+func fitBlock(content string, width, height int) []string {
+	if width < 0 {
+		width = 0
+	}
+	if height < 0 {
+		height = 0
+	}
+	src := strings.Split(content, "\n")
+	out := make([]string, 0, height)
+	for i := range height {
+		line := ""
+		if i < len(src) {
+			line = src[i]
+		}
+		out = append(out, padDisplayLine(line, width))
+	}
+	return out
+}
+
 func placeOverlay(w, h int, overlay, background string) string {
+	if w <= 0 || h <= 0 {
+		return ""
+	}
+
 	overlayLines := strings.Split(overlay, "\n")
 	bgLines := strings.Split(background, "\n")
 
+	ovW := 0
+	for _, line := range overlayLines {
+		if lw := ansi.StringWidth(line); lw > ovW {
+			ovW = lw
+		}
+	}
 	ovH := len(overlayLines)
-	ovW := lipgloss.Width(overlay)
 
 	topPad := (h - ovH) / 2
 	if topPad < 0 {
@@ -1042,6 +1195,9 @@ func placeOverlay(w, h int, overlay, background string) string {
 	leftPad := (w - ovW) / 2
 	if leftPad < 0 {
 		leftPad = 0
+	}
+	if leftPad > w {
+		leftPad = w
 	}
 
 	var b strings.Builder
@@ -1053,20 +1209,28 @@ func placeOverlay(w, h int, overlay, background string) string {
 		}
 
 		if y >= topPad && y < topPad+ovH {
-			ovLineIdx := y - topPad
-			if ovLineIdx < len(overlayLines) {
-				ovLine := overlayLines[ovLineIdx]
-				for range leftPad {
-					b.WriteByte(' ')
-				}
-				b.WriteString(ovLine)
-				continue
+			line := overlayLines[y-topPad]
+			avail := w - leftPad
+			content := ""
+			if avail > 0 {
+				content = ansi.Truncate(line, avail, "")
 			}
+			if leftPad > 0 {
+				b.WriteString(strings.Repeat(" ", leftPad))
+			}
+			b.WriteString(content)
+			used := leftPad + ansi.StringWidth(content)
+			if used < w {
+				b.WriteString(strings.Repeat(" ", w-used))
+			}
+			continue
 		}
 
+		bg := ""
 		if y < len(bgLines) {
-			b.WriteString(bgLines[y])
+			bg = bgLines[y]
 		}
+		b.WriteString(padDisplayLine(bg, w))
 	}
 
 	return b.String()

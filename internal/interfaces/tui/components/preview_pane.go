@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/forgedash/forgedash/internal/domain/change"
 	"github.com/forgedash/forgedash/internal/domain/issue"
 	"github.com/forgedash/forgedash/internal/domain/shared"
@@ -45,6 +46,7 @@ type PreviewPane struct {
 	activeTab    PreviewTab
 	scrollOffset int
 	focused      bool
+	issueMode    bool
 }
 
 func NewPreviewPane(theme *styles.Theme) *PreviewPane {
@@ -52,6 +54,7 @@ func NewPreviewPane(theme *styles.Theme) *PreviewPane {
 		theme:     theme,
 		activeTab: PreviewTabOverview,
 		focused:   false,
+		issueMode: false,
 	}
 }
 
@@ -68,14 +71,6 @@ func (p *PreviewPane) SetSize(w, h int) {
 	p.height = h
 }
 
-func (p *PreviewPane) ActiveTab() PreviewTab {
-	return p.activeTab
-}
-
-func (p *PreviewPane) NextTab() {
-	p.activeTab = (p.activeTab + 1) % 5
-	p.scrollOffset = 0
-}
 func (p *PreviewPane) Width() int {
 	return p.width
 }
@@ -84,17 +79,58 @@ func (p *PreviewPane) Height() int {
 	return p.height
 }
 
-func (p *PreviewPane) PrevTab() {
-	if p.activeTab == 0 {
-		p.activeTab = 4
+func (p *PreviewPane) ActiveTab() PreviewTab {
+	return p.activeTab
+}
+
+func (p *PreviewPane) SetIssueMode(isIssue bool) {
+	p.issueMode = isIssue
+	if isIssue && p.activeTab != PreviewTabOverview && p.activeTab != PreviewTabActivity {
+		p.activeTab = PreviewTabOverview
+		p.scrollOffset = 0
+	}
+}
+
+func (p *PreviewPane) IssueMode() bool {
+	return p.issueMode
+}
+
+func (p *PreviewPane) NextTab() {
+	if p.issueMode {
+		if p.activeTab == PreviewTabOverview {
+			p.activeTab = PreviewTabActivity
+		} else {
+			p.activeTab = PreviewTabOverview
+		}
 	} else {
-		p.activeTab--
+		p.activeTab = (p.activeTab + 1) % 5
+	}
+	p.scrollOffset = 0
+}
+
+func (p *PreviewPane) PrevTab() {
+	if p.issueMode {
+		if p.activeTab == PreviewTabOverview {
+			p.activeTab = PreviewTabActivity
+		} else {
+			p.activeTab = PreviewTabOverview
+		}
+	} else {
+		if p.activeTab <= 0 {
+			p.activeTab = 4
+		} else {
+			p.activeTab--
+		}
 	}
 	p.scrollOffset = 0
 }
 
 func (p *PreviewPane) SetTab(tab PreviewTab) {
-	p.activeTab = tab
+	if p.issueMode && tab != PreviewTabOverview && tab != PreviewTabActivity {
+		p.activeTab = PreviewTabOverview
+	} else {
+		p.activeTab = tab
+	}
 	p.scrollOffset = 0
 }
 
@@ -135,31 +171,40 @@ func (p *PreviewPane) RenderChange(
 
 	switch p.activeTab {
 	case PreviewTabOverview:
-		body = p.renderChangeOverview(cr)
+		body = ansi.Wordwrap(p.renderChangeOverview(cr), w, "")
 	case PreviewTabFiles:
 		body = p.renderDiff(diffs)
 	case PreviewTabCommits:
-		body = p.renderCommits(commits)
+		body = ansi.Wordwrap(p.renderCommits(commits), w, "")
 	case PreviewTabChecks:
-		body = p.renderChecks(checks)
+		body = ansi.Wordwrap(p.renderChecks(checks), w, "")
 	case PreviewTabActivity:
-		body = p.renderActivity(comments)
+		body = ansi.Wordwrap(p.renderActivity(comments), w, "")
 	}
 
 	lines := strings.Split(body, "\n")
-	if p.scrollOffset > len(lines) {
-		p.scrollOffset = len(lines)
-	}
-	visibleHeight := h - 3
+	visibleHeight := h - 2
 	if visibleHeight <= 0 {
-		visibleHeight = 10
+		visibleHeight = 1
 	}
-	endIdx := p.scrollOffset + visibleHeight
+
+	offset := p.scrollOffset
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > len(lines) {
+		offset = len(lines)
+	}
+
+	endIdx := offset + visibleHeight
 	if endIdx > len(lines) {
 		endIdx = len(lines)
 	}
 
-	scrolledBody := strings.Join(lines[p.scrollOffset:endIdx], "\n")
+	scrolledBody := ""
+	if offset < len(lines) {
+		scrolledBody = strings.Join(lines[offset:endIdx], "\n")
+	}
 
 	var b strings.Builder
 	b.Grow(len(tabBar) + len(scrolledBody) + 4)
@@ -189,27 +234,36 @@ func (p *PreviewPane) RenderIssue(iss *issue.Issue, comments []shared.Comment) s
 
 	switch p.activeTab {
 	case PreviewTabOverview:
-		body = p.renderIssueOverview(iss)
+		body = ansi.Wordwrap(p.renderIssueOverview(iss), w, "")
 	case PreviewTabActivity:
-		body = p.renderActivity(comments)
+		body = ansi.Wordwrap(p.renderActivity(comments), w, "")
 	default:
-		body = p.renderIssueOverview(iss)
+		body = ansi.Wordwrap(p.renderIssueOverview(iss), w, "")
 	}
 
 	lines := strings.Split(body, "\n")
-	if p.scrollOffset > len(lines) {
-		p.scrollOffset = len(lines)
-	}
-	visibleHeight := h - 3
+	visibleHeight := h - 2
 	if visibleHeight <= 0 {
-		visibleHeight = 10
+		visibleHeight = 1
 	}
-	endIdx := p.scrollOffset + visibleHeight
+
+	offset := p.scrollOffset
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > len(lines) {
+		offset = len(lines)
+	}
+
+	endIdx := offset + visibleHeight
 	if endIdx > len(lines) {
 		endIdx = len(lines)
 	}
 
-	scrolledBody := strings.Join(lines[p.scrollOffset:endIdx], "\n")
+	scrolledBody := ""
+	if offset < len(lines) {
+		scrolledBody = strings.Join(lines[offset:endIdx], "\n")
+	}
 
 	var b strings.Builder
 	b.Grow(len(tabBar) + len(scrolledBody) + 4)
@@ -222,16 +276,35 @@ func (p *PreviewPane) RenderIssue(iss *issue.Issue, comments []shared.Comment) s
 
 func (p *PreviewPane) renderChangeTabBar(filesCount, commitsCount, checksCount, activityCount int) string {
 	type tabInfo struct {
-		tab   PreviewTab
-		label string
+		tab        PreviewTab
+		fullLabel  string
+		shortLabel string
 	}
 	tabs := []tabInfo{
-		{PreviewTabOverview, "Overview"},
-		{PreviewTabFiles, "Files (" + strconv.Itoa(filesCount) + ")"},
-		{PreviewTabCommits, "Commits (" + strconv.Itoa(commitsCount) + ")"},
-		{PreviewTabChecks, "Checks (" + strconv.Itoa(checksCount) + ")"},
-		{PreviewTabActivity, "Activity (" + strconv.Itoa(activityCount) + ")"},
+		{PreviewTabOverview, "Overview", "Ov"},
+		{PreviewTabActivity, "Activity (" + strconv.Itoa(activityCount) + ")", "Act"},
+		{PreviewTabCommits, "Commits (" + strconv.Itoa(commitsCount) + ")", "Comm"},
+		{PreviewTabChecks, "Checks (" + strconv.Itoa(checksCount) + ")", "CI"},
+		{PreviewTabFiles, "Files & Diff (" + strconv.Itoa(filesCount) + ")", "Diff"},
 	}
+
+	w := p.width
+	if w <= 0 {
+		w = 60
+	}
+
+	fullWidth := 0
+	for i, t := range tabs {
+		if i > 0 {
+			fullWidth += 1
+		}
+		fullWidth += ansi.StringWidth(t.fullLabel) + 2
+	}
+
+	useShort := fullWidth > w
+
+	activeStyle := p.theme.TabActive.BorderTop(false).BorderBottom(false).BorderLeft(false).BorderRight(false)
+	inactiveStyle := p.theme.TabInactive
 
 	var b strings.Builder
 	b.Grow(128)
@@ -240,20 +313,14 @@ func (p *PreviewPane) renderChangeTabBar(filesCount, commitsCount, checksCount, 
 		if i > 0 {
 			b.WriteByte(' ')
 		}
+		lbl := t.fullLabel
+		if useShort {
+			lbl = t.shortLabel
+		}
 		if t.tab == p.activeTab {
-			pill := lipgloss.NewStyle().
-				Bold(true).
-				Foreground(p.theme.P.HighlightText).
-				Background(p.theme.P.Highlight).
-				Padding(0, 1).
-				Render(t.label)
-			b.WriteString(pill)
+			b.WriteString(activeStyle.Render(lbl))
 		} else {
-			pill := lipgloss.NewStyle().
-				Foreground(p.theme.P.Muted).
-				Padding(0, 1).
-				Render(t.label)
-			b.WriteString(pill)
+			b.WriteString(inactiveStyle.Render(lbl))
 		}
 	}
 	return b.String()
@@ -261,13 +328,32 @@ func (p *PreviewPane) renderChangeTabBar(filesCount, commitsCount, checksCount, 
 
 func (p *PreviewPane) renderIssueTabBar(activityCount int) string {
 	type tabInfo struct {
-		tab   PreviewTab
-		label string
+		tab        PreviewTab
+		fullLabel  string
+		shortLabel string
 	}
 	tabs := []tabInfo{
-		{PreviewTabOverview, "Overview"},
-		{PreviewTabActivity, "Activity (" + strconv.Itoa(activityCount) + ")"},
+		{PreviewTabOverview, "Overview", "Ov"},
+		{PreviewTabActivity, "Activity (" + strconv.Itoa(activityCount) + ")", "Act"},
 	}
+
+	w := p.width
+	if w <= 0 {
+		w = 60
+	}
+
+	fullWidth := 0
+	for i, t := range tabs {
+		if i > 0 {
+			fullWidth += 1
+		}
+		fullWidth += ansi.StringWidth(t.fullLabel) + 2
+	}
+
+	useShort := fullWidth > w
+
+	activeStyle := p.theme.TabActive.BorderTop(false).BorderBottom(false).BorderLeft(false).BorderRight(false)
+	inactiveStyle := p.theme.TabInactive
 
 	var b strings.Builder
 	b.Grow(64)
@@ -276,20 +362,14 @@ func (p *PreviewPane) renderIssueTabBar(activityCount int) string {
 		if i > 0 {
 			b.WriteByte(' ')
 		}
+		lbl := t.fullLabel
+		if useShort {
+			lbl = t.shortLabel
+		}
 		if t.tab == p.activeTab {
-			pill := lipgloss.NewStyle().
-				Bold(true).
-				Foreground(p.theme.P.HighlightText).
-				Background(p.theme.P.Highlight).
-				Padding(0, 1).
-				Render(t.label)
-			b.WriteString(pill)
+			b.WriteString(activeStyle.Render(lbl))
 		} else {
-			pill := lipgloss.NewStyle().
-				Foreground(p.theme.P.Muted).
-				Padding(0, 1).
-				Render(t.label)
-			b.WriteString(pill)
+			b.WriteString(inactiveStyle.Render(lbl))
 		}
 	}
 	return b.String()
@@ -375,6 +455,19 @@ func (p *PreviewPane) renderActivity(comments []shared.Comment) string {
 		return p.theme.Subtitle.Render("No comments or review activity yet.")
 	}
 
+	w := p.width
+	if w <= 0 {
+		w = 60
+	}
+
+	divLen := 36
+	if divLen > w-4 {
+		divLen = w - 4
+		if divLen < 4 {
+			divLen = 4
+		}
+	}
+
 	var b strings.Builder
 	b.Grow(len(comments) * 256)
 
@@ -397,7 +490,7 @@ func (p *PreviewPane) renderActivity(comments []shared.Comment) string {
 
 		if i < len(comments)-1 {
 			b.WriteString("\n  ")
-			b.WriteString(lipgloss.NewStyle().Foreground(p.theme.P.BorderInactive).Render(strings.Repeat("─", 36)))
+			b.WriteString(lipgloss.NewStyle().Foreground(p.theme.P.BorderInactive).Render(strings.Repeat("─", divLen)))
 			b.WriteString("\n\n")
 		}
 	}
@@ -481,6 +574,11 @@ func (p *PreviewPane) renderDiff(diffs []shared.DiffFile) string {
 		return p.theme.Subtitle.Render("No diff patches available.")
 	}
 
+	w := p.width
+	if w <= 0 {
+		w = 60
+	}
+
 	var b strings.Builder
 	b.Grow(4096)
 
@@ -494,19 +592,21 @@ func (p *PreviewPane) renderDiff(diffs []shared.DiffFile) string {
 		hb.WriteString(strconv.Itoa(df.Deletions))
 		hb.WriteString(") ───")
 		header := p.theme.DiffHeader.Render(hb.String())
-		b.WriteString(header)
+		b.WriteString(ansi.Truncate(header, w, ""))
 		b.WriteByte('\n')
 
 		for _, line := range strings.Split(df.Patch, "\n") {
+			var styled string
 			if strings.HasPrefix(line, "+") {
-				b.WriteString(p.theme.DiffAdded.Render(line))
+				styled = p.theme.DiffAdded.Render(line)
 			} else if strings.HasPrefix(line, "-") {
-				b.WriteString(p.theme.DiffRemoved.Render(line))
+				styled = p.theme.DiffRemoved.Render(line)
 			} else if strings.HasPrefix(line, "@@") {
-				b.WriteString(lipgloss.NewStyle().Foreground(p.theme.P.Secondary).Render(line))
+				styled = lipgloss.NewStyle().Foreground(p.theme.P.Secondary).Render(line)
 			} else {
-				b.WriteString(line)
+				styled = line
 			}
+			b.WriteString(ansi.Truncate(styled, w, ""))
 			b.WriteByte('\n')
 		}
 		b.WriteByte('\n')

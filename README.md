@@ -6,7 +6,7 @@ The standalone multi-forge terminal dashboard for Pull Requests, Merge Requests,
 
 - **Multi-Forge Aggregation**: Unified view combining GitHub (github.com & Enterprise), GitLab (gitlab.com & self-hosted), and Codeberg/Forgejo.
 - **Keyboard-Driven**: Fast navigation, section tabs, and action shortcuts (`j`/`k`, `h`/`l`, `Enter`, `d`, `c`, `v`, `m`, `x`, `p`, `/`, `?`).
-- **5-Tab Preview Pane**: Inspect Overview, Activity timeline, Commits, CI Checks, and Unified Diffs.
+- **Preview Pane**: PRs offer five tabs—Overview, Activity, Commits, CI Checks, and Unified Diffs; Issues offer Overview and Activity.
 - **Offline Demo Mode**: Test the full dashboard without credentials using `--demo`.
 
 ## Installation
@@ -47,13 +47,21 @@ Generate a Personal Access Token:
 - **GitLab**: Scopes `api`, `read_user` at GitLab Preferences -> Access Tokens
 - **Codeberg**: Scopes `issue`, `repository`, `notification` at Codeberg Settings -> Applications
 
-Log in:
+Interactive login prompts for the token without echoing it:
 
 ```bash
-forgedash auth login --provider github --token "<TOKEN>" --name "GitHub Personal"
-forgedash auth login --provider gitlab --host gitlab.com --token "<TOKEN>" --name "GitLab Work"
-forgedash auth login --provider forgejo --host codeberg.org --token "<TOKEN>" --name "Codeberg OSS"
+forgedash auth login --provider github --name "GitHub Personal"
 ```
+
+For automation, pass the token through stdin instead of a command-line argument:
+
+```bash
+printf '%s' "$GITHUB_TOKEN" | forgedash auth login --provider github --token-stdin --name "GitHub Personal"
+printf '%s' "$GITLAB_TOKEN" | forgedash auth login --provider gitlab --host gitlab.com --token-stdin --name "GitLab Work"
+printf '%s' "$CODEBERG_TOKEN" | forgedash auth login --provider forgejo --host codeberg.org --token-stdin --name "Codeberg OSS"
+```
+
+Tokens supplied as command-line arguments can be recorded in shell history or exposed in process listings.
 
 Or set environment variables: `GITHUB_TOKEN`, `GITLAB_TOKEN`, `CODEBERG_TOKEN`.
 

@@ -3,11 +3,11 @@ package cli
 import (
 	"context"
 	"fmt"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/spf13/cobra"
+	"io"
 	"os"
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/forgedash/forgedash/internal/application/ports"
 	"github.com/forgedash/forgedash/internal/application/usecase"
 	"github.com/forgedash/forgedash/internal/domain/account"
@@ -19,6 +19,8 @@ import (
 	"github.com/forgedash/forgedash/internal/infrastructure/provider/gitlab"
 	"github.com/forgedash/forgedash/internal/infrastructure/provider/mock"
 	"github.com/forgedash/forgedash/internal/interfaces/tui/screens"
+	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 var (
@@ -281,10 +283,10 @@ func newAuthCmd() *cobra.Command {
 	}
 
 	var (
-		provider string
-		host     string
-		token    string
-		accName  string
+		provider   string
+		host       string
+		tokenStdin bool
+		accName    string
 	)
 
 	loginCmd := &cobra.Command{
@@ -300,8 +302,9 @@ func newAuthCmd() *cobra.Command {
 			if accName == "" {
 				accName = fmt.Sprintf("%s (%s)", provider, host)
 			}
-			if token == "" {
-				return fmt.Errorf("--token flag is required for non-interactive login")
+			token, err := readAuthToken(cmd, tokenStdin)
+			if err != nil {
+				return err
 			}
 
 			store, err := auth.NewStore("")
@@ -311,7 +314,6 @@ func newAuthCmd() *cobra.Command {
 
 			accID := fmt.Sprintf("%s-%s", provider, strings.ReplaceAll(host, ".", "-"))
 			if err := store.Set(accID, token); err != nil {
-				return fmt.Errorf("failed to save credential: %w", err)
 			}
 
 			cfg, err := config.Load(cfgFile)
@@ -350,7 +352,7 @@ func newAuthCmd() *cobra.Command {
 
 	loginCmd.Flags().StringVarP(&provider, "provider", "p", "github", "forge provider (github, gitlab, forgejo)")
 	loginCmd.Flags().StringVar(&host, "host", "", "forge hostname (default: provider default host)")
-	loginCmd.Flags().StringVarP(&token, "token", "t", "", "authentication personal access token")
+	loginCmd.Flags().BoolVar(&tokenStdin, "token-stdin", false, "read authentication token from stdin")
 	loginCmd.Flags().StringVarP(&accName, "name", "n", "", "descriptive account name")
 
 	cmd.AddCommand(loginCmd)
@@ -407,4 +409,33 @@ func newAuthCmd() *cobra.Command {
 	})
 
 	return cmd
+}
+
+func readAuthToken(cmd *cobra.Command, tokenStdin bool) (string, error) {
+	if tokenStdin {
+		token, err := io.ReadAll(cmd.InOrStdin())
+		if err != nil {
+			return "", fmt.Errorf("failed to read token from stdin: %w", err)
+		}
+		value := strings.TrimRight(string(token), "\r\n")
+		if value == "" {
+			return "", fmt.Errorf("token from stdin is empty")
+		}
+		return value, nil
+	}
+
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		return "", fmt.Errorf("token required: use --token-stdin or run from a terminal")
+	}
+
+	fmt.Fprint(cmd.ErrOrStderr(), "Personal access token: ")
+	token, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Fprintln(cmd.ErrOrStderr())
+	if err != nil {
+		return "", fmt.Errorf("failed to read token: %w", err)
+	}
+	if len(token) == 0 {
+		return "", fmt.Errorf("token is empty")
+	}
+	return string(token), nil
 }

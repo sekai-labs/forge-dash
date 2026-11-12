@@ -187,8 +187,6 @@ func NewTheme(p Palette) *Theme {
 	t.SectionActive = lipgloss.NewStyle().
 		Bold(true).
 		Foreground(p.BorderActive).
-		Border(lipgloss.NormalBorder(), false, false, true, false).
-		BorderForeground(p.BorderActive).
 		Padding(0, 1)
 
 	t.SectionInactive = lipgloss.NewStyle().
@@ -198,8 +196,6 @@ func NewTheme(p Palette) *Theme {
 	t.TabActive = lipgloss.NewStyle().
 		Bold(true).
 		Foreground(p.BorderActive).
-		Border(lipgloss.NormalBorder(), false, false, true, false).
-		BorderForeground(p.BorderActive).
 		Padding(0, 1)
 
 	t.TabInactive = lipgloss.NewStyle().
@@ -208,10 +204,7 @@ func NewTheme(p Palette) *Theme {
 
 	t.TableHeader = lipgloss.NewStyle().
 		Bold(true).
-		Foreground(p.Muted).
-		Background(p.BgCard).
-		Border(lipgloss.NormalBorder(), false, false, true, false).
-		BorderForeground(p.BorderInactive)
+		Foreground(p.Muted)
 
 	t.TableRow = lipgloss.NewStyle().
 		Foreground(p.Text)

@@ -2,6 +2,7 @@ package components
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -23,7 +24,16 @@ func (s *StatusBar) SetWidth(w int) {
 	s.width = w
 }
 
-func (s *StatusBar) Render(cursor, total int, errs map[account.AccountID]error, loading bool) string {
+func (s *StatusBar) Render(cursor, total int, errs map[account.AccountID]error, loading bool, focusedPreview, previewOpen bool) string {
+	w := s.width
+	if w <= 0 {
+		w = 80
+	}
+	contentW := w - 2
+	if contentW < 1 {
+		contentW = 1
+	}
+
 	var leftB strings.Builder
 	leftB.Grow(128)
 
@@ -40,13 +50,13 @@ func (s *StatusBar) Render(cursor, total int, errs map[account.AccountID]error, 
 	}
 
 	if len(errs) > 0 {
-		leftB.WriteString("  ")
-		var errAccounts []string
+		ids := make([]string, 0, len(errs))
 		for accID := range errs {
-			errAccounts = append(errAccounts, string(accID))
+			ids = append(ids, string(accID))
 		}
-		alert := s.theme.BadgeClosed.Render(fmt.Sprintf("⚠ %d err (%s)", len(errs), strings.Join(errAccounts, ", ")))
-		leftB.WriteString(alert)
+		sort.Strings(ids)
+		leftB.WriteString("  ")
+		leftB.WriteString(s.theme.BadgeClosed.Render(fmt.Sprintf("⚠ %d err (%s)", len(errs), strings.Join(ids, ", "))))
 	}
 
 	left := leftB.String()
@@ -55,46 +65,79 @@ func (s *StatusBar) Render(cursor, total int, errs map[account.AccountID]error, 
 		key  string
 		desc string
 	}
-	shortcuts := []shortcut{
-		{"?", "help"},
-		{"/", "filter"},
-		{"r", "refresh"},
-		{"p", "preview"},
-		{"o", "open"},
-		{"c", "comment"},
-		{"q", "quit"},
-	}
 
-	var rightB strings.Builder
-	rightB.Grow(128)
+	// Low priority first: hints are dropped from the front until the bar fits.
+	var hints []shortcut
+	if !focusedPreview {
+		hints = append(hints, shortcut{"j/k", "move"})
+	}
+	if previewOpen {
+		hints = append(hints, shortcut{"Tab", "focus"})
+	}
+	if focusedPreview {
+		hints = append(hints, shortcut{"[/]", "tab"})
+	}
+	hints = append(hints, shortcut{"?", "help"})
+
 	keyStyle := lipgloss.NewStyle().Bold(true).Foreground(s.theme.P.HighlightText)
 	descStyle := lipgloss.NewStyle().Foreground(s.theme.P.Muted)
 
-	for i, sc := range shortcuts {
-		if i > 0 {
-			rightB.WriteString("  ")
+	renderHints := func(hs []shortcut) string {
+		var b strings.Builder
+		b.Grow(128)
+		for i, sc := range hs {
+			if i > 0 {
+				b.WriteString("  ")
+			}
+			b.WriteString(keyStyle.Render(sc.key))
+			b.WriteByte(' ')
+			b.WriteString(descStyle.Render(sc.desc))
 		}
-		rightB.WriteString(keyStyle.Render(sc.key))
-		rightB.WriteByte(' ')
-		rightB.WriteString(descStyle.Render(sc.desc))
+		return b.String()
 	}
-	right := rightB.String()
+
+	right := renderHints(hints)
+	for len(hints) > 1 && ansi.StringWidth(left)+1+ansi.StringWidth(right) > contentW {
+		hints = hints[1:]
+		right = renderHints(hints)
+	}
+
+	rightW := ansi.StringWidth(right)
+	leftAvail := contentW - rightW - 1
+	if leftAvail < 0 {
+		leftAvail = 0
+	}
+	if ansi.StringWidth(left) > leftAvail {
+		left = ansi.Truncate(left, leftAvail, "…")
+	}
 
 	leftW := ansi.StringWidth(left)
-	rightW := ansi.StringWidth(right)
+	if rightW > contentW {
+		right = ansi.Truncate(right, contentW, "")
+		rightW = ansi.StringWidth(right)
+		left = ""
+		leftW = 0
+	}
 
-	gap := s.width - leftW - rightW - 2
-	if gap < 1 {
-		gap = 1
+	gap := contentW - leftW - rightW
+	if gap < 0 {
+		gap = 0
 	}
 
 	var barB strings.Builder
-	barB.Grow(s.width + 16)
+	barB.Grow(w + 16)
 	barB.WriteString(left)
 	for range gap {
 		barB.WriteByte(' ')
 	}
 	barB.WriteString(right)
 
-	return s.theme.StatusBar.Width(s.width).Render(barB.String())
+	content := barB.String()
+	if cw := ansi.StringWidth(content); cw < contentW {
+		content += strings.Repeat(" ", contentW-cw)
+	} else if cw > contentW {
+		content = ansi.Truncate(content, contentW, "")
+	}
+
+	return s.theme.StatusBar.Width(w).Render(content)
 }
